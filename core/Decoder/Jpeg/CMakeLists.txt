@@ -34,6 +34,10 @@ function(add_jpeg_decoder target runtimeTarget)
                 -DENABLE_SHARED=OFF
                 -DWITH_SIMD=OFF
                 -DWITH_TURBOJPEG=ON
+                -DWITH_SYSTEM_ZLIB=ON
+                -DZLIB_LIBRARY=$<TARGET_FILE:ZLIB::ZLIB>
+                -DZLIB_INCLUDE_DIR=${ANYPS5_ZLIB_INCLUDE_DIR}
+                -DCMAKE_PROJECT_INCLUDE=${CMAKE_CURRENT_FUNCTION_LIST_DIR}/ZlibIncludes.cmake
                 -DWITH_TOOLS=OFF
                 -DWITH_TESTS=OFF
                 -DCMAKE_INSTALL_LIBDIR=lib
@@ -47,11 +51,13 @@ function(add_jpeg_decoder target runtimeTarget)
                 ${jpeg_turbo_platform_args}
             BUILD_BYPRODUCTS
                 "${jpeg_turbo_library}"
+            DEPENDS ZLIB::ZLIB
         )
         add_library(jpeg_turbo STATIC IMPORTED GLOBAL)
         set_target_properties(jpeg_turbo PROPERTIES
             IMPORTED_LOCATION "${jpeg_turbo_library}"
             INTERFACE_INCLUDE_DIRECTORIES "${PROJECT_SOURCE_DIR}/3rdparty/libjpeg-turbo/src;${jpeg_turbo_prefix}/include"
+            INTERFACE_LINK_LIBRARIES ZLIB::ZLIB
         )
         add_dependencies(jpeg_turbo jpeg_turbo_external)
     endif()

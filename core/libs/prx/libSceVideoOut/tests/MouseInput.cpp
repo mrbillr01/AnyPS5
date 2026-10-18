@@ -1,9 +1,9 @@
 #include "prx/libSceVideoOut/include/MouseInput.hpp"
 #include "prx/libSceMouse/include/mouse_structs.h"
 #include "prx/libc/include/general/VabiMacros.hpp"
-#include "SDL.h"
-#include "SDL_events.h"
-#include "SDL_mouse.h"
+#include <SDL3/SDL.h>
+#include <SDL3/SDL_events.h>
+#include <SDL3/SDL_mouse.h>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -27,47 +27,46 @@ void Require(bool condition, const char* reason) {
 
 SDL_Event Motion(unsigned windowId, int xrel, int yrel) {
     SDL_Event event{};
-    event.type = SDL_MOUSEMOTION;
+    event.type = SDL_EVENT_MOUSE_MOTION;
     event.motion.windowID = windowId;
     event.motion.xrel = xrel;
     event.motion.yrel = yrel;
     return event;
 }
 
-SDL_Event Window(unsigned windowId, std::uint8_t kind) {
+SDL_Event Window(unsigned windowId, SDL_EventType kind) {
     SDL_Event event{};
-    event.type = SDL_WINDOWEVENT;
     event.window.windowID = windowId;
-    event.window.event = kind;
+    event.type = kind;
     return event;
 }
 void CaptureDecision(MouseInput& input, std::int32_t handle) {
     Require(input.CaptureWanted(true), "a focused window with an open mouse does not want the capture");
     Require(!input.CaptureWanted(false), "the pad's mouse-to-stick toggle does not release the capture");
-    input.HandleEvent(Window(3, SDL_WINDOWEVENT_FOCUS_LOST), 3);
+    input.HandleEvent(Window(3, SDL_EVENT_WINDOW_FOCUS_LOST), 3);
     Require(!input.CaptureWanted(true), "losing focus does not release the capture");
-    input.HandleEvent(Window(3, SDL_WINDOWEVENT_FOCUS_GAINED), 3);
+    input.HandleEvent(Window(3, SDL_EVENT_WINDOW_FOCUS_GAINED), 3);
     Require(input.CaptureWanted(true), "regaining focus does not restore the capture");
-    input.HandleEvent(Window(4, SDL_WINDOWEVENT_FOCUS_LOST), 3);
+    input.HandleEvent(Window(4, SDL_EVENT_WINDOW_FOCUS_LOST), 3);
     Require(input.CaptureWanted(true), "another window's focus loss released the capture");
     Require(sceMouseClose(handle) == 0, "close failed");
     Require(!input.CaptureWanted(true), "a closed mouse keeps the capture");
     Require(sceMouseOpen(255, 0, 0, nullptr) >= 0, "reopen failed");
     Require(input.CaptureWanted(true), "a reopened mouse does not want the capture");
-    input.HandleEvent(Window(3, SDL_WINDOWEVENT_CLOSE), 3);
+    input.HandleEvent(Window(3, SDL_EVENT_WINDOW_CLOSE_REQUESTED), 3);
     Require(!input.CaptureWanted(true), "a closed window keeps the capture");
-    input.HandleEvent(Window(3, SDL_WINDOWEVENT_FOCUS_GAINED), 3);
+    input.HandleEvent(Window(3, SDL_EVENT_WINDOW_FOCUS_GAINED), 3);
 }
 void CaptureApplied(MouseInput& input) {
-    SDL_SetHint("SDL_VIDEODRIVER", "dummy");
-    if (SDL_Init(SDL_INIT_VIDEO) != 0) {
+    SDL_SetHint("SDL_VIDEO_DRIVER", "dummy");
+    if (!SDL_Init(SDL_INIT_VIDEO)) {
         std::fprintf(stderr, "mouse input: SDL video unavailable (%s): capture application not checked\n", SDL_GetError());
         return;
     }
     input.UpdateCapture(true);
-    const bool applied = SDL_GetRelativeMouseMode() == SDL_TRUE;
+    const bool applied = SDL_GetWindowRelativeMouseMode(SDL_GetMouseFocus()) == true;
     input.UpdateCapture(false);
-    Require(SDL_GetRelativeMouseMode() == SDL_FALSE, "the capture was not released");
+    Require(SDL_GetWindowRelativeMouseMode(SDL_GetMouseFocus()) == false, "the capture was not released");
     std::printf("mouse input: SDL %s relative mode under the %s driver\n", applied ? "applied" : "refused", SDL_GetCurrentVideoDriver());
     SDL_Quit();
 }

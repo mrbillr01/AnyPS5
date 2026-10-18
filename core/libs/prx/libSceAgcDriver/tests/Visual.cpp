@@ -1,7 +1,7 @@
 #define SDL_MAIN_HANDLED
 #include "prx/libSceAgcDriver/Execution/include/VulkanDevice.hpp"
-#include <SDL.h>
-#include <SDL_vulkan.h>
+#include <SDL3/SDL.h>
+#include <SDL3/SDL_vulkan.h>
 #include <array>
 #include <algorithm>
 #include <filesystem>
@@ -32,17 +32,17 @@ ShaderRecompiler::RecompileResult LoadShader(const std::filesystem::path& path) 
 
 void Run(SDL_Window* window, const std::filesystem::path& directory, bool verifyOnly) {
     unsigned count = 0;
-    Require(SDL_Vulkan_GetInstanceExtensions(window, &count, nullptr) == SDL_TRUE, SDL_GetError());
-    std::vector<const char*> extensions(count);
-    Require(SDL_Vulkan_GetInstanceExtensions(window, &count, extensions.data()) == SDL_TRUE, SDL_GetError());
+    const char* const* names = SDL_Vulkan_GetInstanceExtensions(&count);
+    Require(names != nullptr, SDL_GetError());
+    std::vector<const char*> extensions(names, names + count);
     const AgcDriver::PresentationWindow presentation{window, extensions, [](void* context, VkInstance instance) {
         VkSurfaceKHR surface = VK_NULL_HANDLE;
-        Require(SDL_Vulkan_CreateSurface(static_cast<SDL_Window*>(context), instance, &surface) == SDL_TRUE, SDL_GetError());
+        Require(SDL_Vulkan_CreateSurface(static_cast<SDL_Window*>(context), instance, nullptr, &surface) == true, SDL_GetError());
         return surface;
     }, [](void* context, std::uint32_t* width, std::uint32_t* height) {
         int drawableWidth = 0;
         int drawableHeight = 0;
-        SDL_Vulkan_GetDrawableSize(static_cast<SDL_Window*>(context), &drawableWidth, &drawableHeight);
+        SDL_GetWindowSizeInPixels(static_cast<SDL_Window*>(context), &drawableWidth, &drawableHeight);
         *width = drawableWidth > 0 ? static_cast<std::uint32_t>(drawableWidth) : 0;
         *height = drawableHeight > 0 ? static_cast<std::uint32_t>(drawableHeight) : 0;
     }, Width, Height};
@@ -96,8 +96,8 @@ void Run(SDL_Window* window, const std::filesystem::path& directory, bool verify
         while (running) {
             SDL_Event event{};
             if (SDL_WaitEventTimeout(&event, 100)) {
-                if (event.type == SDL_QUIT || (event.type == SDL_KEYDOWN && event.key.keysym.sym == SDLK_ESCAPE)) running = false;
-                if (event.type == SDL_WINDOWEVENT && event.window.event == SDL_WINDOWEVENT_EXPOSED) device.PresentPixels(Width, Height, Pixels);
+                if (event.type == SDL_EVENT_QUIT || (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_ESCAPE)) running = false;
+                if ((event.type >= SDL_EVENT_WINDOW_FIRST && event.type <= SDL_EVENT_WINDOW_LAST) && event.type == SDL_EVENT_WINDOW_EXPOSED) device.PresentPixels(Width, Height, Pixels);
             }
         }
     }
@@ -110,13 +110,13 @@ int main(int argc, char** argv) {
     try {
         Require(argc == 1 || (argc == 2 && std::string_view(argv[1]) == "--verify"), "usage: agc_driver_visual_test [--verify]");
         SDL_SetMainReady();
-        Require(SDL_Init(SDL_INIT_VIDEO) == 0, SDL_GetError());
+        Require(SDL_Init(SDL_INIT_VIDEO), SDL_GetError());
         {
-            const auto window = std::unique_ptr<SDL_Window, decltype(&SDL_DestroyWindow)>(SDL_CreateWindow("AnyPS5 AGC - SPIR-V triangle test", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, Width, Height, SDL_WINDOW_VULKAN | SDL_WINDOW_SHOWN), SDL_DestroyWindow);
+            const auto window = std::unique_ptr<SDL_Window, decltype(&SDL_DestroyWindow)>(SDL_CreateWindow("AnyPS5 AGC - SPIR-V triangle test", Width, Height, SDL_WINDOW_VULKAN), SDL_DestroyWindow);
             Require(window != nullptr, SDL_GetError());
-            const auto base = std::unique_ptr<char, decltype(&SDL_free)>(SDL_GetBasePath(), SDL_free);
+            const char* base = SDL_GetBasePath();
             Require(base != nullptr, SDL_GetError());
-            Run(window.get(), std::filesystem::path(base.get()), argc == 2);
+            Run(window.get(), std::filesystem::path(base), argc == 2);
         }
         SDL_Quit();
         return 0;

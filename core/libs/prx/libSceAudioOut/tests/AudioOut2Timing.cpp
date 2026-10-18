@@ -1,3 +1,4 @@
+#include <SDL3/SDL.h>
 #include "SceTypes.hpp"
 
 #include <chrono>
@@ -29,8 +30,10 @@ static void Require(bool value) { if (!value) std::abort(); }
 static void SetEnvironment(const char* name, const std::string& value) {
 #ifdef _WIN32
     _putenv_s(name, value.c_str());
+    SDL_SetEnvironmentVariable(SDL_GetEnvironment(), name, value.c_str(), true);
 #else
     setenv(name, value.c_str(), 1);
+    SDL_SetEnvironmentVariable(SDL_GetEnvironment(), name, value.c_str(), true);
 #endif
 }
 
@@ -55,7 +58,7 @@ struct Session {
 
     explicit Session(const char* name) : path(std::filesystem::temp_directory_path() / (std::to_string(std::random_device{}()) + "-" + name)) {
         std::filesystem::remove(path);
-        SetEnvironment("SDL_DISKAUDIOFILE", path.string());
+        SetEnvironment("SDL_AUDIO_DISK_OUTPUT_FILE", path.string());
         AudioOut2ContextParam params{};
         Require(sceAudioOut2ContextResetParam(&params) == 0);
         params.num_grains = grain;
@@ -191,7 +194,7 @@ void TestPrimingAfterRunningDry() {
 }
 
 int main() {
-    SetEnvironment("SDL_AUDIODRIVER", "disk");
+    SetEnvironment("SDL_AUDIO_DRIVER", "disk");
     TestReadAtNextPush();
     TestRecreatedPort();
     TestLevelExcludesCushion();

@@ -46,6 +46,11 @@ def package(platform, build, output, version):
         raise RuntimeError(f"Missing patched libraries: {', '.join(sorted(missing))}")
     executable = "relinker.exe" if platform == "windows" else "relinker"
     files = [library for library in libraries if library.name in expected]
+    sdl_pattern = "SDL3.dll" if platform == "windows" else "libSDL3.so.*"
+    sdl_runtime = sorted((build / "core/libs/libs").glob(sdl_pattern))
+    if not sdl_runtime:
+        raise RuntimeError(f"Missing SDL3 runtime: {build / 'core/libs/libs' / sdl_pattern}")
+    files.extend(sdl_runtime)
     if platform == "windows":
         runtime = windows_runtime(build)
         files.extend(runtime / name for name in ("libgcc_s_seh-1.dll", "libstdc++-6.dll", "libwinpthread-1.dll"))

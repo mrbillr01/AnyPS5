@@ -50,8 +50,8 @@
 #include <cstdlib>
 #include <ctime>
 #include <mutex>
-#include <SDL_loadso.h>
-#include <SDL_error.h>
+#include <SDL3/SDL_loadso.h>
+#include <SDL3/SDL_error.h>
 #include <spirv/unified1/spirv.hpp>
 #include <array>
 #include <optional>
@@ -238,7 +238,7 @@ struct WorkgroupMemory {
 
 struct VulkanDevice::State {
     bool compileOnly = false;
-    void* library = nullptr;
+    SDL_SharedObject* library = nullptr;
     PFN_vkGetInstanceProcAddr instanceProc = nullptr;
     PFN_vkGetDeviceProcAddr deviceProc = nullptr;
     VkInstance instance = VK_NULL_HANDLE;

@@ -1,6 +1,6 @@
 #define SDL_MAIN_HANDLED
 #include "prx/libSceAudioOut/include/AudioOutSdl.hpp"
-#include "SDL.h"
+#include <SDL3/SDL.h>
 
 #include <chrono>
 #include <condition_variable>
@@ -20,7 +20,7 @@ bool secondReady = false;
 bool validFlags = true;
 }
 
-extern "C" int SDLCALL SDL_InitSubSystem(Uint32 flags) {
+extern "C" bool SDLCALL SDL_InitSubSystem(SDL_InitFlags flags) {
     std::unique_lock lock(stateMutex);
     validFlags = validFlags && flags == SDL_INIT_AUDIO;
     const int call = ++calls;
@@ -35,7 +35,7 @@ extern "C" int SDLCALL SDL_InitSubSystem(Uint32 flags) {
         stateChanged.notify_all();
     }
     --active;
-    return call == 1 ? -1 : 0;
+    return call != 1;
 }
 
 int main() {

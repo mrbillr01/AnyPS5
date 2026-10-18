@@ -1,8 +1,8 @@
 #include "prx/libSceMouse/include/mouse_structs.h"
 #include "prx/libSceMouse/include/MouseState.hpp"
 #include "prx/libSceVideoOut/include/MouseInput.hpp"
-#include "SDL_events.h"
-#include "SDL_mouse.h"
+#include <SDL3/SDL_events.h>
+#include <SDL3/SDL_mouse.h>
 
 #include <cstdlib>
 
@@ -35,7 +35,7 @@ int main() {
 
     MouseInput input;
     SDL_Event event{};
-    event.type = SDL_MOUSEMOTION;
+    event.type = SDL_EVENT_MOUSE_MOTION;
     event.motion.windowID = 7;
     event.motion.xrel = 9;
     event.motion.yrel = -4;
@@ -44,12 +44,12 @@ int main() {
     input.HandleEvent(event, 7);
 
     event = {};
-    event.type = SDL_MOUSEBUTTONDOWN;
+    event.type = SDL_EVENT_MOUSE_BUTTON_DOWN;
     event.button.windowID = 7;
     event.button.button = SDL_BUTTON_RIGHT;
     input.HandleEvent(event, 7);
     event = {};
-    event.type = SDL_MOUSEWHEEL;
+    event.type = SDL_EVENT_MOUSE_WHEEL;
     event.wheel.windowID = 7;
     event.wheel.x = 2;
     event.wheel.y = -3;
@@ -61,31 +61,29 @@ int main() {
     Require(data[2].buttons == 2 && data[2].wheel == 3 && data[2].tilt == -2);
     Require(data[0].timestamp <= data[2].timestamp);
     event = {};
-    event.type = SDL_MOUSEBUTTONDOWN;
+    event.type = SDL_EVENT_MOUSE_BUTTON_DOWN;
     event.button.windowID = 7;
     event.button.button = SDL_BUTTON_X1;
     input.HandleEvent(event, 7);
     Require(sceMouseRead(MOUSE_HANDLE, data, 1) == 0);
 
     event = {};
-    event.type = SDL_WINDOWEVENT;
     event.window.windowID = 7;
-    event.window.event = SDL_WINDOWEVENT_FOCUS_LOST;
+    event.type = SDL_EVENT_WINDOW_FOCUS_LOST;
     input.HandleEvent(event, 7);
     Require(sceMouseRead(MOUSE_HANDLE, data, 1) == 1);
     Require(data[0].connected && data[0].buttons == 0);
-    event.type = SDL_MOUSEMOTION;
+    event.type = SDL_EVENT_MOUSE_MOTION;
     event.motion.xrel = 5;
     input.HandleEvent(event, 7);
     Require(sceMouseRead(MOUSE_HANDLE, data, 1) == 0);
-    event.type = SDL_WINDOWEVENT;
-    event.window.event = SDL_WINDOWEVENT_FOCUS_GAINED;
+    event.type = SDL_EVENT_WINDOW_FOCUS_GAINED;
     input.HandleEvent(event, 7);
     Require(sceMouseRead(MOUSE_HANDLE, data, 1) == 0);
-    event.window.event = SDL_WINDOWEVENT_CLOSE;
+    event.type = SDL_EVENT_WINDOW_CLOSE_REQUESTED;
     input.HandleEvent(event, 7);
     Require(sceMouseRead(MOUSE_HANDLE, data, 1) == 1 && !data[0].connected);
-    event.window.event = SDL_WINDOWEVENT_FOCUS_GAINED;
+    event.type = SDL_EVENT_WINDOW_FOCUS_GAINED;
     input.HandleEvent(event, 7);
     Require(sceMouseRead(MOUSE_HANDLE, data, 1) == 1 && data[0].connected);
 

@@ -7,7 +7,7 @@
 #include "prx/libSceAgcDriver/Graphics/include/TextureTiling.hpp"
 #include "prx/libc/include/GuestAllocations.hpp"
 #include "VulkanTestDevice.hpp"
-#include <SDL_loadso.h>
+#include <SDL3/SDL_loadso.h>
 #include <vector>
 #include <algorithm>
 #include <array>
@@ -136,7 +136,7 @@ private:
         if (library != nullptr) SDL_UnloadObject(library);
     }
 
-    void* library = nullptr;
+    SDL_SharedObject* library = nullptr;
     PFN_vkGetInstanceProcAddr instanceProc = nullptr;
     VkInstance instance = VK_NULL_HANDLE;
     Context context{};

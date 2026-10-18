@@ -3,8 +3,8 @@
 
 #include <array>
 #include <cstdint>
-#include "SDL_scancode.h"
-#include "SDL_mouse.h"
+#include <SDL3/SDL_scancode.h>
+#include <SDL3/SDL_mouse.h>
 
 namespace Pad {
 enum class InputControl {

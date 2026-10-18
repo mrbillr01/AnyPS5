@@ -3,12 +3,13 @@
 #include "SceTypes.hpp"
 #include "prx/libc/include/General.hpp"
 #include "prx/libc/include/PreciseWait.hpp"
-#include "SDL.h"
+#include <SDL3/SDL.h>
 #include <algorithm>
 #include <array>
 #include <chrono>
 #include <cstring>
 #include <mutex>
+#include <string>
 
 namespace {
 
@@ -35,7 +36,7 @@ struct Port {
     bool busy = false;
     std::uint32_t samples = 0;
     std::uint32_t frameBytes = 0;
-    SDL_AudioDeviceID device = 0;
+    SDL_AudioStream* device = 0;
     Clock::duration grain{};
     Clock::time_point next{};
 };
@@ -46,27 +47,30 @@ bool g_sdlAudio = false;
 
 bool formatOf(std::uint32_t param, Format& format) {
     switch (param) {
-        case 1: format = {AUDIO_S16SYS, 1}; return true;
-        case 2: format = {AUDIO_S16SYS, 2}; return true;
-        case 0x11: format = {AUDIO_F32SYS, 1}; return true;
-        case 0x12: format = {AUDIO_F32SYS, 2}; return true;
+        case 1: format = {SDL_AUDIO_S16, 1}; return true;
+        case 2: format = {SDL_AUDIO_S16, 2}; return true;
+        case 0x11: format = {SDL_AUDIO_F32, 1}; return true;
+        case 0x12: format = {SDL_AUDIO_F32, 2}; return true;
         default: return false;
     }
 }
 
-SDL_AudioDeviceID openDevice(std::uint32_t freq, std::uint32_t samples, const Format& format) {
+SDL_AudioStream* openDevice(std::uint32_t freq, std::uint32_t samples, const Format& format) {
     if (!g_sdlAudio) {
-        if (SDL_InitSubSystem(SDL_INIT_AUDIO) < 0) return 0;
+        if (!SDL_InitSubSystem(SDL_INIT_AUDIO)) return 0;
         g_sdlAudio = true;
     }
+    const std::string sampleFrames = std::to_string(samples);
+    SDL_SetHintWithPriority(SDL_HINT_AUDIO_DEVICE_SAMPLE_FRAMES, sampleFrames.c_str(), SDL_HINT_DEFAULT);
     SDL_AudioSpec desired{};
     desired.freq = static_cast<int>(freq);
     desired.format = format.format;
     desired.channels = format.channels;
-    desired.samples = static_cast<Uint16>(samples);
-    SDL_AudioSpec obtained{};
-    const SDL_AudioDeviceID device = SDL_OpenAudioDevice(nullptr, 1, &desired, &obtained, 0);
-    if (device != 0) SDL_PauseAudioDevice(device, 0);
+    SDL_AudioStream* device = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_RECORDING, &desired, nullptr, nullptr);
+    if (device && !SDL_ResumeAudioStreamDevice(device)) {
+        SDL_DestroyAudioStream(device);
+        return nullptr;
+    }
     return device;
 }
 
@@ -102,15 +106,17 @@ int openPort(std::uint32_t len, std::uint32_t freq, std::uint32_t param, const c
     return AUDIO_IN_ERROR_PORT_FULL;
 }
 
-std::size_t capture(SDL_AudioDeviceID device, std::uint8_t* dest, std::size_t bytes, Clock::time_point deadline) {
-    while (SDL_GetQueuedAudioSize(device) < bytes && Clock::now() < deadline) PreciseSleepUs(1000);
-    const std::size_t queued = SDL_GetQueuedAudioSize(device);
+std::size_t capture(SDL_AudioStream* device, std::uint8_t* dest, std::size_t bytes, Clock::time_point deadline) {
+    while (std::max(0, SDL_GetAudioStreamAvailable(device)) < bytes && Clock::now() < deadline) PreciseSleepUs(1000);
+    const std::size_t queued = std::max(0, SDL_GetAudioStreamAvailable(device));
     std::array<std::uint8_t, 4096> discard;
     for (std::size_t excess = queued > bytes * MAX_QUEUED_BLOCKS ? queued - bytes * MAX_QUEUED_BLOCKS : 0; excess > 0;) {
         const auto chunk = static_cast<Uint32>(std::min(excess, discard.size()));
-        excess -= SDL_DequeueAudio(device, discard.data(), chunk);
+        const int removed = SDL_GetAudioStreamData(device, discard.data(), static_cast<int>(chunk));
+        if (removed <= 0) break;
+        excess -= static_cast<std::size_t>(removed);
     }
-    return SDL_DequeueAudio(device, dest, static_cast<Uint32>(bytes));
+    return std::max(0, SDL_GetAudioStreamData(device, dest, static_cast<int>(bytes)));
 }
 
 }
@@ -134,12 +140,12 @@ int APS5_VABI sceAudioInInput(int handle, void* dest) {
     if (!port) return AUDIO_IN_ERROR_INVALID_HANDLE;
     if (port->busy) return AUDIO_IN_ERROR_BUSY;
     if (!dest) {
-        if (port->device != 0) SDL_ClearQueuedAudio(port->device);
+        if (port->device != 0) SDL_ClearAudioStream(port->device);
         port->next = {};
         return 0;
     }
     const std::size_t bytes = static_cast<std::size_t>(port->samples) * port->frameBytes;
-    const SDL_AudioDeviceID device = port->device;
+    SDL_AudioStream* const device = port->device;
     const auto now = Clock::now();
     const auto wake = port->next > now ? port->next : now;
     port->next = wake + port->grain;
@@ -172,7 +178,7 @@ int32_t APS5_VABI sceAudioInClose(int32_t handle) {
     Port* port = find(handle);
     if (!port) return AUDIO_IN_ERROR_INVALID_HANDLE;
     if (port->busy) return AUDIO_IN_ERROR_BUSY;
-    if (port->device != 0) SDL_CloseAudioDevice(port->device);
+    if (port->device != 0) SDL_DestroyAudioStream(port->device);
     *port = {};
     return 0;
 }

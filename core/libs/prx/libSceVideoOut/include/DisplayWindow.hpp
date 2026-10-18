@@ -2,7 +2,7 @@
 #define CORE_LIBS_PRX_LIBSCEVIDEOOUT_INCLUDE_DISPLAYWINDOW_HPP
 
 #include <cstdint>
-#include "SDL.h"
+#include <SDL3/SDL.h>
 
 inline constexpr std::uint32_t DisplayWindowMinimumWidth = 320;
 inline constexpr std::uint32_t DisplayWindowMinimumHeight = 180;

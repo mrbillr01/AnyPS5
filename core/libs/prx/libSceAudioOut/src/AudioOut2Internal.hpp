@@ -13,7 +13,7 @@
 #include <utility>
 #include <vector>
 
-#include "SDL.h"
+#include <SDL3/SDL.h>
 #include "SceTypes.hpp"
 #include "AudioOut2PadMix.hpp"
 
@@ -85,7 +85,7 @@ struct AudioOut2Context {
     // drains as the wall clock advances. With a device the unplayed grains are the hardware queue.
     std::uint32_t queued = 0;
     std::chrono::steady_clock::time_point playHead;
-    SDL_AudioDeviceID device = 0;
+    SDL_AudioStream* device = nullptr;
     // Stereo float mix of the ports for one grain.
     std::vector<float> mix;
     // Mixed stereo frames the device has not played yet; it plays silence until the cushion is mixed.
@@ -96,7 +96,7 @@ struct AudioOut2Context {
     std::deque<AudioOut2Grain> advancedGrains;
     std::deque<AudioOut2Grain> pendingGrains;
     std::deque<std::chrono::steady_clock::time_point> pendingSince;
-    SDL_AudioDeviceID padDevice = 0;
+    SDL_AudioStream* padDevice = nullptr;
     std::chrono::steady_clock::time_point nextPadProbe;
     AudioOut2PadLayout padLayout;
     std::vector<float> padMix;

@@ -1,8 +1,11 @@
+#include <SDL3/SDL.h>
 #include "prx/libc/include/general/VabiMacros.hpp"
 #include <algorithm>
 #include <chrono>
 #include <cstdint>
 #include <cstdlib>
+#include <cstdio>
+#include <source_location>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -21,7 +24,11 @@ int APS5_VABI sceAudioInGetSilentState(int);
 int APS5_VABI sceAudioInClose(int);
 }
 
-static void Require(bool value) { if (!value) std::abort(); }
+static void Require(bool value, const std::source_location& location = std::source_location::current()) {
+    if (value) return;
+    std::fprintf(stderr, "%s:%u: assertion failed\n", location.file_name(), location.line());
+    std::abort();
+}
 
 template <typename TCall>
 static bool ReportsNotImplemented(const char* name, TCall call) {
@@ -36,8 +43,10 @@ static bool ReportsNotImplemented(const char* name, TCall call) {
 static void SetEnvironment(const char* name, const std::string& value) {
 #ifdef _WIN32
     _putenv_s(name, value.c_str());
+    SDL_SetEnvironmentVariable(SDL_GetEnvironment(), name, value.c_str(), true);
 #else
     setenv(name, value.c_str(), 1);
+    SDL_SetEnvironmentVariable(SDL_GetEnvironment(), name, value.c_str(), true);
 #endif
 }
 
@@ -79,8 +88,11 @@ void TestCapture() {
     std::vector<std::int16_t> recorded(256 * 2 * 4);
     for (std::size_t i = 0; i < recorded.size(); ++i) recorded[i] = static_cast<std::int16_t>(i * 7 - 3000);
     std::ofstream(path, std::ios::binary).write(reinterpret_cast<const char*>(recorded.data()), static_cast<std::streamsize>(recorded.size() * 2));
-    SetEnvironment("SDL_AUDIODRIVER", "disk");
-    SetEnvironment("SDL_DISKAUDIOFILEIN", path.string());
+    SetEnvironment("SDL_AUDIO_DRIVER", "disk");
+    SetEnvironment("SDL_AUDIO_DISK_INPUT_FILE", path.string());
+    SetEnvironment("SDL_AUDIO_FORMAT", "S16LE");
+    SetEnvironment("SDL_AUDIO_CHANNELS", "2");
+    SetEnvironment("SDL_AUDIO_FREQUENCY", "48000");
 
     TestValidation();
     const int handle = sceAudioInOpen(user, 0, 0, 256, 48000, 2);
@@ -107,7 +119,7 @@ void TestCapture() {
 void TestNoDevice() {
     constexpr int invalidHandle = static_cast<int>(0x80260101);
     constexpr int portFull = static_cast<int>(0x80260107);
-    SetEnvironment("SDL_AUDIODRIVER", "none");
+    SetEnvironment("SDL_AUDIO_DRIVER", "none");
 
     TestValidation();
     const int handle = sceAudioInOpen(user, 0, 0, 256, 16000, 0x12);

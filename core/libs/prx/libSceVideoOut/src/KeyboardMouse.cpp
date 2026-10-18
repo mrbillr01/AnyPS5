@@ -111,17 +111,17 @@ void Pad::KeyboardMouse::Release() {
 
 Pad::InputRequests Pad::KeyboardMouse::HandleEvent(const SDL_Event& event, Clock::time_point now) {
     InputRequests requests;
-    if (event.type == SDL_WINDOWEVENT) {
-        if (event.window.event != SDL_WINDOWEVENT_FOCUS_LOST && event.window.event != SDL_WINDOWEVENT_CLOSE) return requests;
+    if ((event.type >= SDL_EVENT_WINDOW_FIRST && event.type <= SDL_EVENT_WINDOW_LAST)) {
+        if (event.type != SDL_EVENT_WINDOW_FOCUS_LOST && event.type != SDL_EVENT_WINDOW_CLOSE_REQUESTED) return requests;
         Release();
         requests.releaseMouse = mouseMode;
         return requests;
     }
-    if (event.type == SDL_MOUSEMOTION) {
+    if (event.type == SDL_EVENT_MOUSE_MOTION) {
         if (mouseMode) mouse.Move(event.motion.xrel, event.motion.yrel);
         return requests;
     }
-    if (event.type == SDL_MOUSEWHEEL) {
+    if (event.type == SDL_EVENT_MOUSE_WHEEL) {
         int direction = (event.wheel.y > 0) - (event.wheel.y < 0);
         if (event.wheel.direction == SDL_MOUSEWHEEL_FLIPPED) direction = -direction;
         if (direction == 0) return requests;
@@ -134,15 +134,15 @@ Pad::InputRequests Pad::KeyboardMouse::HandleEvent(const SDL_Event& event, Clock
         }
         return requests;
     }
-    const bool keyboard = event.type == SDL_KEYDOWN || event.type == SDL_KEYUP;
-    const bool mouseButton = event.type == SDL_MOUSEBUTTONDOWN || event.type == SDL_MOUSEBUTTONUP;
+    const bool keyboard = event.type == SDL_EVENT_KEY_DOWN || event.type == SDL_EVENT_KEY_UP;
+    const bool mouseButton = event.type == SDL_EVENT_MOUSE_BUTTON_DOWN || event.type == SDL_EVENT_MOUSE_BUTTON_UP;
     if (!keyboard && !mouseButton) return requests;
     if (keyboard && event.key.repeat != 0) return requests;
-    const bool down = event.type == SDL_KEYDOWN || event.type == SDL_MOUSEBUTTONDOWN;
+    const bool down = event.type == SDL_EVENT_KEY_DOWN || event.type == SDL_EVENT_MOUSE_BUTTON_DOWN;
     for (std::size_t index = 0; index < configuration.bindings.size(); ++index) {
         const auto& binding = configuration.bindings[index];
         const bool matches = keyboard
-            ? binding.key != SDL_SCANCODE_UNKNOWN && binding.key == event.key.keysym.scancode
+            ? binding.key != SDL_SCANCODE_UNKNOWN && binding.key == event.key.scancode
             : binding.mouseButton != MouseButton::None && binding.mouseButton == static_cast<MouseButton>(event.button.button);
         if (!matches) continue;
         if (binding.control == InputControl::ToggleFullscreen && keyboard && down && !pressed[index]) requests.toggleFullscreen = true;

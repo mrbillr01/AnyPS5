@@ -1,8 +1,11 @@
+#include <SDL3/SDL.h>
 #include "prx/libc/include/general/VabiMacros.hpp"
 
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
+#include <cstdio>
+#include <source_location>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -10,6 +13,8 @@
 #include <stdexcept>
 #include <string>
 #include <vector>
+#include <type_traits>
+#include <cmath>
 
 extern "C" {
 int APS5_VABI sceAudioOutOpen(int, int, int, std::uint32_t, std::uint32_t, std::uint32_t);
@@ -19,13 +24,19 @@ int APS5_VABI sceAudioOutSetVolume(int, std::uint32_t, int*);
 int APS5_VABI sceAudioOutSetMixLevelPadSpk(int, int);
 }
 
-static void Require(bool value) { if (!value) std::abort(); }
+static void Require(bool value, const std::source_location& location = std::source_location::current()) {
+    if (value) return;
+    std::fprintf(stderr, "%s:%u: assertion failed\n", location.file_name(), location.line());
+    std::abort();
+}
 
 static void SetEnvironment(const char* name, const std::string& value) {
 #ifdef _WIN32
     _putenv_s(name, value.c_str());
+    SDL_SetEnvironmentVariable(SDL_GetEnvironment(), name, value.c_str(), true);
 #else
     setenv(name, value.c_str(), 1);
+    SDL_SetEnvironmentVariable(SDL_GetEnvironment(), name, value.c_str(), true);
 #endif
 }
 
@@ -58,27 +69,41 @@ template<typename TSample, typename TSetup>
 std::vector<TSample> Play(int type, std::uint32_t format, const std::vector<TSample>& block, TSetup setup) {
     const auto path = std::filesystem::temp_directory_path() / ("anyps5_audio_out_mix_level_pad_spk-" + std::to_string(std::random_device{}()) + ".raw");
     std::filesystem::remove(path);
-    SetEnvironment("SDL_DISKAUDIOFILE", path.string());
+    SetEnvironment("SDL_AUDIO_DISK_OUTPUT_FILE", path.string());
 
+    Require(SDL_InitSubSystem(SDL_INIT_AUDIO));
+    const SDL_AudioSpec hostSpec{SDL_AUDIO_F32, 2, static_cast<int>(frequency)};
+    const SDL_AudioDeviceID hostDevice = SDL_OpenAudioDevice(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &hostSpec);
+    Require(hostDevice != 0);
     const int handle = sceAudioOutOpen(user, type, 0, frames, frequency, format);
     Require(handle > 0);
     setup(handle);
     Require(sceAudioOutOutput(handle, block.data()) == static_cast<int>(frames));
     Require(sceAudioOutOutput(handle, nullptr) == static_cast<int>(frames));
     Require(sceAudioOutClose(handle) == 0);
+    SDL_CloseAudioDevice(hostDevice);
 
     std::ifstream file(path, std::ios::binary);
     const std::vector<char> bytes{std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
     file.close();
     std::filesystem::remove(path);
-    Require(bytes.size() >= block.size() * sizeof(TSample) && bytes.size() % sizeof(TSample) == 0);
-
-    const auto* samples = reinterpret_cast<const TSample*>(bytes.data());
+    Require(bytes.size() >= frames * 2 * sizeof(float) && bytes.size() % (2 * sizeof(float)) == 0);
+    const auto* host = reinterpret_cast<const float*>(bytes.data());
+    const auto sourceChannels = block.size() / frames;
+    std::vector<TSample> converted;
+    for (std::size_t frame = 0; frame < bytes.size() / (2 * sizeof(float)); ++frame) {
+        if (sourceChannels == 1) Require(host[frame * 2] == host[frame * 2 + 1]);
+        for (std::size_t channel = 0; channel < sourceChannels; ++channel) {
+            const float sample = host[frame * 2 + channel];
+            if constexpr (std::is_same_v<TSample, float>) converted.push_back(sample);
+            else converted.push_back(static_cast<TSample>(std::lround(sample * 32768.0f)));
+        }
+    }
     std::size_t first = 0;
-    std::size_t last = bytes.size() / sizeof(TSample);
-    while (first < last && samples[first] == TSample{}) first++;
-    while (last > first && samples[last - 1] == TSample{}) last--;
-    return {samples + first, samples + last};
+    std::size_t last = converted.size();
+    while (first < last && converted[first] == TSample{}) first++;
+    while (last > first && converted[last - 1] == TSample{}) last--;
+    return {converted.begin() + first, converted.begin() + last};
 }
 
 std::vector<std::int16_t> Ramp() {
@@ -174,7 +199,10 @@ void TestRejectedLevels() {
 }
 
 int main() {
-    SetEnvironment("SDL_AUDIODRIVER", "disk");
+    SetEnvironment("SDL_AUDIO_DRIVER", "disk");
+    SetEnvironment("SDL_AUDIO_FORMAT", "F32LE");
+    SetEnvironment("SDL_AUDIO_CHANNELS", "2");
+    SetEnvironment("SDL_AUDIO_FREQUENCY", "48000");
     TestDefaultLevel();
     TestLevels();
     TestLevelWithVolume();

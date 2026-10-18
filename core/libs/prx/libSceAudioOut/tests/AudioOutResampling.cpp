@@ -1,4 +1,4 @@
-#include "SDL.h"
+#include <SDL3/SDL.h>
 #include "prx/libc/include/general/VabiMacros.hpp"
 
 #include <cmath>
@@ -27,11 +27,11 @@ void Require(bool value, const char* message) {
 }
 
 void Collect() {
-    const int bytes = SDL_AudioStreamAvailable(conversion);
+    const int bytes = SDL_GetAudioStreamAvailable(conversion);
     Require(bytes >= 0 && bytes % static_cast<int>(sizeof(float)) == 0, "invalid converted size");
     const auto first = played.size();
     played.resize(first + bytes / sizeof(float));
-    if (bytes != 0) Require(SDL_AudioStreamGet(conversion, played.data() + first, bytes) == bytes, "stream read failed");
+    if (bytes != 0) Require(SDL_GetAudioStreamData(conversion, played.data() + first, bytes) == bytes, "stream read failed");
 }
 
 void TestBoundary(std::uint32_t sourceRate) {
@@ -45,7 +45,10 @@ void TestBoundary(std::uint32_t sourceRate) {
     data.assign(grain * 2, 0.0f);
     for (int block = 0; block < 8; block++) Require(sceAudioOutOutput(port, data.data()) == static_cast<int>(grain), "trailing output failed");
     Require(sceAudioOutOutput(port, nullptr) == static_cast<int>(grain), "drain failed");
+    Require(SDL_FlushAudioStream(conversion), "host conversion flush failed");
+    Collect();
     Require(sceAudioOutClose(port) == 0, "close failed");
+    conversion = nullptr;
     const auto boundary = static_cast<std::size_t>(std::ceil(static_cast<double>(grain) * hostRate / sourceRate));
     Require(played.size() / 2 > boundary + 16, "resampled tail missing");
     double tailEnergy = 0.0;
@@ -61,39 +64,18 @@ void TestBoundary(std::uint32_t sourceRate) {
 
 }
 
-extern "C" int SDLCALL SDL_InitSubSystem(Uint32) { return 0; }
-extern "C" Uint32 SDLCALL SDL_WasInit(Uint32) { return SDL_INIT_AUDIO; }
-extern "C" void SDLCALL SDL_PauseAudioDevice(SDL_AudioDeviceID, int) {}
-extern "C" Uint32 SDLCALL SDL_GetQueuedAudioSize(SDL_AudioDeviceID) { return 0; }
-extern "C" void SDLCALL SDL_ClearQueuedAudio(SDL_AudioDeviceID) {}
-
-extern "C" SDL_AudioDeviceID SDLCALL SDL_OpenAudioDevice(const char*, int, const SDL_AudioSpec* desired, SDL_AudioSpec* obtained, int changes) {
-    *obtained = *desired;
-    if ((changes & SDL_AUDIO_ALLOW_FREQUENCY_CHANGE) != 0) obtained->freq = hostRate;
-    else {
-        conversion = SDL_NewAudioStream(desired->format, desired->channels, desired->freq, AUDIO_F32SYS, 2, hostRate);
-        Require(conversion != nullptr, "host conversion stream creation failed");
-    }
-    return 2;
-}
-
-extern "C" int SDLCALL SDL_QueueAudio(SDL_AudioDeviceID, const void* data, Uint32 size) {
-    if (conversion != nullptr) {
-        if (SDL_AudioStreamPut(conversion, data, static_cast<int>(size)) < 0) return -1;
-        Collect();
-    } else {
-        const auto* samples = static_cast<const float*>(data);
-        played.insert(played.end(), samples, samples + size / sizeof(float));
-    }
+extern "C" bool SDLCALL SDL_InitSubSystem(SDL_InitFlags) { return true; }
+extern "C" SDL_InitFlags SDLCALL SDL_WasInit(SDL_InitFlags) { return SDL_INIT_AUDIO; }
+extern "C" bool SDLCALL SDL_ResumeAudioStreamDevice(SDL_AudioStream*) { return true; }
+extern "C" int SDLCALL SDL_GetAudioStreamQueued(SDL_AudioStream*) {
+    Collect();
     return 0;
 }
-
-extern "C" void SDLCALL SDL_CloseAudioDevice(SDL_AudioDeviceID) {
-    if (conversion == nullptr) return;
-    Require(SDL_AudioStreamFlush(conversion) == 0, "host conversion flush failed");
-    Collect();
-    SDL_FreeAudioStream(conversion);
-    conversion = nullptr;
+extern "C" SDL_AudioStream* SDLCALL SDL_OpenAudioDeviceStream(SDL_AudioDeviceID, const SDL_AudioSpec* desired, SDL_AudioStreamCallback, void*) {
+    const SDL_AudioSpec host{SDL_AUDIO_F32, 2, hostRate};
+    conversion = SDL_CreateAudioStream(desired, &host);
+    Require(conversion != nullptr, "host conversion stream creation failed");
+    return conversion;
 }
 
 int main() {

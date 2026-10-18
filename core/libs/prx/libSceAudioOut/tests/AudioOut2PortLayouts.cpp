@@ -1,3 +1,4 @@
+#include <SDL3/SDL.h>
 #include "SceTypes.hpp"
 
 #include <cmath>
@@ -32,8 +33,10 @@ static void Require(bool value) { if (!value) std::abort(); }
 static void SetEnvironment(const char* name, const std::string& value) {
 #ifdef _WIN32
     _putenv_s(name, value.c_str());
+    SDL_SetEnvironmentVariable(SDL_GetEnvironment(), name, value.c_str(), true);
 #else
     setenv(name, value.c_str(), 1);
+    SDL_SetEnvironmentVariable(SDL_GetEnvironment(), name, value.c_str(), true);
 #endif
 }
 
@@ -153,7 +156,7 @@ struct PortData {
 std::vector<float> Play(const std::vector<PortData>& inputs) {
     const auto path = std::filesystem::temp_directory_path() / ("anyps5_audio_out2_port_layouts-" + std::to_string(std::random_device{}()) + ".raw");
     std::filesystem::remove(path);
-    SetEnvironment("SDL_DISKAUDIOFILE", path.string());
+    SetEnvironment("SDL_AUDIO_DISK_OUTPUT_FILE", path.string());
 
     const auto context = CreateContext();
     std::vector<AudioOut2PortHandle> ports;
@@ -333,7 +336,7 @@ void TestMeasuredMainPortFormats() {
 
 int main() {
     TestUserAttributes();
-    SetEnvironment("SDL_AUDIODRIVER", "disk");
+    SetEnvironment("SDL_AUDIO_DRIVER", "disk");
     for (const Layout* layout : {&mono, &stereo, &surround71, &surround714}) {
         TestFloatLayout(*layout);
         TestS16Layout(*layout);

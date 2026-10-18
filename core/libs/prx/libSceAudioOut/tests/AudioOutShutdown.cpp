@@ -133,9 +133,9 @@ void OutputAudioOut() {
 
 int main(int argc, char** argv) {
 #ifdef _WIN32
-    _putenv_s("SDL_AUDIODRIVER", "dummy");
+    _putenv_s("SDL_AUDIO_DRIVER", "dummy");
 #else
-    setenv("SDL_AUDIODRIVER", "dummy", 1);
+    setenv("SDL_AUDIO_DRIVER", "dummy", 1);
 #endif
     const bool waiting = argc == 2 && std::strcmp(argv[1], "--audio-out2-waiting-push") == 0;
     if (argc == 2 && std::strcmp(argv[1], "--audio-out2") == 0) PushAudioOut2();

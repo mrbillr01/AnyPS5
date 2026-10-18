@@ -7,7 +7,7 @@
 #include <cmath>
 #include <vector>
 
-#include "SDL_keyboard.h"
+#include <SDL3/SDL_keyboard.h>
 
 namespace PadSimulation {
 
@@ -26,7 +26,7 @@ struct Sample {
 
 inline SDL_Event MotionEvent(int deltaX, int deltaY) {
     SDL_Event event{};
-    event.type = SDL_MOUSEMOTION;
+    event.type = SDL_EVENT_MOUSE_MOTION;
     event.motion.xrel = deltaX;
     event.motion.yrel = deltaY;
     return event;
@@ -34,30 +34,29 @@ inline SDL_Event MotionEvent(int deltaX, int deltaY) {
 
 inline SDL_Event KeyEvent(SDL_Scancode key, bool down) {
     SDL_Event event{};
-    event.type = down ? SDL_KEYDOWN : SDL_KEYUP;
-    event.key.keysym.scancode = key;
-    event.key.state = down ? SDL_PRESSED : SDL_RELEASED;
+    event.type = down ? SDL_EVENT_KEY_DOWN : SDL_EVENT_KEY_UP;
+    event.key.scancode = key;
+    event.key.down = down ? true : false;
     return event;
 }
 
 inline SDL_Event ButtonEvent(Uint8 button, bool down) {
     SDL_Event event{};
-    event.type = down ? SDL_MOUSEBUTTONDOWN : SDL_MOUSEBUTTONUP;
+    event.type = down ? SDL_EVENT_MOUSE_BUTTON_DOWN : SDL_EVENT_MOUSE_BUTTON_UP;
     event.button.button = button;
-    event.button.state = down ? SDL_PRESSED : SDL_RELEASED;
+    event.button.down = down ? true : false;
     return event;
 }
 
 inline SDL_Event FocusLostEvent() {
     SDL_Event event{};
-    event.type = SDL_WINDOWEVENT;
-    event.window.event = SDL_WINDOWEVENT_FOCUS_LOST;
+    event.type = SDL_EVENT_WINDOW_FOCUS_LOST;
     return event;
 }
 
 inline SDL_Event WheelEvent(int direction) {
     SDL_Event event{};
-    event.type = SDL_MOUSEWHEEL;
+    event.type = SDL_EVENT_MOUSE_WHEEL;
     event.wheel.y = direction;
     event.wheel.direction = SDL_MOUSEWHEEL_NORMAL;
     return event;

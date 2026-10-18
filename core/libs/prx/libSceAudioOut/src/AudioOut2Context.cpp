@@ -101,7 +101,7 @@ static std::uint32_t QueueLevel(AudioOut2Context& context, Clock::time_point now
     return unplayed > cushion ? std::min(context.queueDepth, unplayed - cushion) : 0;
 }
 
-static void DeviceCallback(void* userdata, Uint8* stream, int length);
+static void DeviceCallback(void* userdata, SDL_AudioStream* stream, int additional, int total);
 
 static void OpenDevice(AudioOut2Context& context) {
     if (InitializeSdlAudio_nid_no_patch() < 0) {
@@ -110,68 +110,57 @@ static void OpenDevice(AudioOut2Context& context) {
     }
     SDL_AudioSpec desired{};
     desired.freq = static_cast<int>(AUDIO_OUT2_SAMPLE_RATE);
-    desired.format = AUDIO_F32SYS;
+    desired.format = SDL_AUDIO_F32;
     desired.channels = AUDIO_OUT2_OUTPUT_CHANNELS;
-    desired.samples = DEVICE_SAMPLES;
-    desired.callback = DeviceCallback;
-    desired.userdata = &context;
-    SDL_AudioSpec obtained{};
-    // No format change is allowed: SDL converts to the device's native format itself, so the callback
-    // always writes stereo float at 48 kHz.
-    context.device = SDL_OpenAudioDevice(nullptr, 0, &desired, &obtained, 0);
-    if (context.device == 0) {
-        AUDIOOUT2_TRACE("SDL_OpenAudioDevice failed: %s\n", SDL_GetError());
+    context.device = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &desired, DeviceCallback, &context);
+    if (!context.device) {
+        AUDIOOUT2_TRACE("SDL_OpenAudioDeviceStream failed: %s\n", SDL_GetError());
         return;
     }
-    SDL_PauseAudioDevice(context.device, 0);
-    AUDIOOUT2_TRACE("SDL device %u opened: %d Hz, format 0x%x, %u channels, %u samples\n", context.device, obtained.freq, obtained.format, obtained.channels, obtained.samples);
+    SDL_ResumeAudioStreamDevice(context.device);
 }
 
-static void CloseDevice(SDL_AudioDeviceID device) {
-    if (device != 0 && SDL_WasInit(SDL_INIT_AUDIO) != 0) SDL_CloseAudioDevice(device);
+static void CloseDevice(SDL_AudioStream* device) {
+    if (device && SDL_WasInit(SDL_INIT_AUDIO)) SDL_DestroyAudioStream(device);
 }
 
 static void OpenPadDevice(AudioOut2Context& context) {
-    if (SDL_WasInit(SDL_INIT_AUDIO) == 0 && InitializeSdlAudio_nid_no_patch() < 0) return;
-    const int count = SDL_GetNumAudioDevices(0);
-    for (int index = 0; index < count; index++) {
-        const char* listed = SDL_GetAudioDeviceName(index, 0);
-        if (!AudioOut2IsPadAudioDevice(listed)) continue;
+    if (!SDL_WasInit(SDL_INIT_AUDIO) && InitializeSdlAudio_nid_no_patch() < 0) return;
+    int count = 0;
+    SDL_AudioDeviceID* devices = SDL_GetAudioPlaybackDevices(&count);
+    for (int index = 0; index < count; ++index) {
+        const char* listed = SDL_GetAudioDeviceName(devices[index]);
+        if (!listed || !AudioOut2IsPadAudioDevice(listed)) continue;
         const std::string name(listed);
         SDL_AudioSpec native{};
-        if (SDL_GetAudioDeviceSpec(index, 0, &native) == 0 && native.channels != 0 && native.channels != AUDIO_OUT2_PAD_CHANNELS) continue;
+        if (SDL_GetAudioDeviceFormat(devices[index], &native, nullptr) && native.channels != 0 && native.channels != AUDIO_OUT2_PAD_CHANNELS) continue;
         const auto layout = AudioOut2PadLayoutForDriver(SDL_GetCurrentAudioDriver());
-        SDL_AudioSpec desired{};
-        desired.freq = static_cast<int>(AUDIO_OUT2_SAMPLE_RATE);
-        desired.format = AUDIO_F32SYS;
-        desired.channels = static_cast<Uint8>(layout.channels);
-        desired.samples = DEVICE_SAMPLES;
-        desired.callback = nullptr;
-        SDL_AudioSpec obtained{};
-        context.padDevice = SDL_OpenAudioDevice(name.c_str(), 0, &desired, &obtained, 0);
-        if (context.padDevice == 0) {
+        const SDL_AudioSpec desired{SDL_AUDIO_F32, static_cast<int>(layout.channels), static_cast<int>(AUDIO_OUT2_SAMPLE_RATE)};
+        context.padDevice = SDL_OpenAudioDeviceStream(devices[index], &desired, nullptr, nullptr);
+        if (!context.padDevice) {
             APS5_LOG_ERR("AudioOut2: could not open the controller sound card '%s': %s", name.c_str(), SDL_GetError());
-            return;
+            break;
         }
         context.padLayout = layout;
         context.padMix.assign(static_cast<std::size_t>(context.grain) * AUDIO_OUT2_PAD_CHANNELS, 0.0f);
         context.padFrames.assign(static_cast<std::size_t>(context.grain) * layout.channels, 0.0f);
-        SDL_PauseAudioDevice(context.padDevice, 0);
+        SDL_ResumeAudioStreamDevice(context.padDevice);
         APS5_LOG_OUT("AudioOut2: controller speaker and vibration ports play on '%s'", name.c_str());
-        return;
+        break;
     }
+    SDL_free(devices);
 }
 
 static void ClosePadDevice(AudioOut2Context& context) {
     if (context.padDevice != 0 && SDL_WasInit(SDL_INIT_AUDIO) != 0) {
-        SDL_ClearQueuedAudio(context.padDevice);
-        SDL_CloseAudioDevice(context.padDevice);
+        SDL_ClearAudioStream(context.padDevice);
+        SDL_DestroyAudioStream(context.padDevice);
     }
     context.padDevice = 0;
 }
 
 static void UpdatePadDevice(AudioOut2Context& context, Clock::time_point now) {
-    if (context.padDevice != 0 && SDL_GetAudioDeviceStatus(context.padDevice) == SDL_AUDIO_STOPPED) {
+    if (context.padDevice != 0 && !SDL_GetAudioDeviceFormat(SDL_GetAudioStreamDevice(context.padDevice), nullptr, nullptr)) {
         APS5_LOG_CHARS_OUT("AudioOut2: the controller sound card went away; speaker audio falls back to the main mix, haptic audio stays muted");
         ClosePadDevice(context);
         context.nextPadProbe = now + PAD_PROBE_INTERVAL;
@@ -187,13 +176,13 @@ static void QueuePadGrain(AudioOut2Context& context) {
     const auto grainBytes = context.grain * frameBytes;
     const auto cushionBytes = CUSHION_MS * (AUDIO_OUT2_SAMPLE_RATE / 1000) * frameBytes;
     const auto mainQueuedBytes = context.device != 0 ? UnplayedGrains(context) * grainBytes : cushionBytes + context.queueDepth * grainBytes;
-    const auto queuedBytes = SDL_GetQueuedAudioSize(context.padDevice);
+    const auto queuedBytes = SDL_GetAudioStreamQueued(context.padDevice);
     if (queuedBytes > mainQueuedBytes + PAD_SLACK_GRAINS * grainBytes) return;
     if (queuedBytes == 0) {
         static const std::vector<float> silence(static_cast<std::size_t>(CUSHION_MS) * AUDIO_OUT2_SAMPLE_RATE / 1000 * AUDIO_OUT2_PAD_DEVICE_CHANNELS_MAX, 0.0f);
-        SDL_QueueAudio(context.padDevice, silence.data(), cushionBytes);
+        SDL_PutAudioStreamData(context.padDevice, silence.data(), cushionBytes);
     }
-    SDL_QueueAudio(context.padDevice, context.padFrames.data(), grainBytes);
+    SDL_PutAudioStreamData(context.padDevice, context.padFrames.data(), grainBytes);
 }
 
 static void Render(AudioOut2Context& context, const AudioOut2Grain& grain) {
@@ -219,10 +208,13 @@ static void Render(AudioOut2Context& context, const AudioOut2Grain& grain) {
     }
 }
 
-static void DeviceCallback(void* userdata, Uint8* stream, int length) {
+static void DeviceCallback(void* userdata, SDL_AudioStream* stream, int additional, int) {
+    if (additional <= 0) return;
+    std::vector<float> rendered((static_cast<std::size_t>(additional) + sizeof(float) - 1) / sizeof(float));
+    const auto length = rendered.size() * sizeof(float);
     auto& context = *static_cast<AudioOut2Context*>(userdata);
     std::lock_guard lock(context.lock);
-    auto* out = reinterpret_cast<float*>(stream);
+    auto* out = rendered.data();
     const auto samples = static_cast<std::size_t>(length) / sizeof(float);
     const auto cushionSamples = static_cast<std::size_t>(CushionGrains(context)) * context.grain * AUDIO_OUT2_OUTPUT_CHANNELS;
     if (context.priming && context.output.size() >= cushionSamples) context.priming = false;
@@ -234,6 +226,7 @@ static void DeviceCallback(void* userdata, Uint8* stream, int length) {
         context.priming = true;
         context.primes++;
     }
+    SDL_PutAudioStreamData(stream, rendered.data(), static_cast<int>(length));
 }
 
 static void TraceSummary(AudioOut2Context& context, Clock::time_point now) {
@@ -305,10 +298,10 @@ int APS5_VABI sceAudioOut2ContextDestroy(AudioOut2ContextHandle ctx) try {
     auto* context = FromHandle(ctx);
     if (!context) return SCE_AUDIO_OUT2_ERROR_INVALID_HANDLE;
     AUDIOOUT2_TRACE("t=%.3f ContextDestroy ctx %p after %llu pushes\n", AudioOut2TraceSeconds(), static_cast<void*>(context), static_cast<unsigned long long>(context->pushes));
-    SDL_AudioDeviceID device = 0;
+    SDL_AudioStream* device = nullptr;
     {
         std::lock_guard lock(context->lock);
-        device = std::exchange(context->device, 0);
+        device = std::exchange(context->device, nullptr);
         ClosePadDevice(*context);
     }
     CloseDevice(device);

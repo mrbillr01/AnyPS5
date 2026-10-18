@@ -4,14 +4,15 @@
 #include "prx/libkernel/AppMetadata/include/AppMetadata.hpp"
 #include "prx/libkernel/Time/include/Time.hpp"
 #include "Decoder/Png.hpp"
-#include "SDL_vulkan.h"
+#include <SDL3/SDL_vulkan.h>
 #include <cstdio>
+#include <cstring>
 #include <span>
 #include <stdexcept>
 #include <string>
 
 #ifdef _WIN32
-#include "SDL_syswm.h"
+
 #include <windows.h>
 #include <commctrl.h>
 #endif
@@ -27,10 +28,10 @@ void applyAppIcon(SDL_Window* window) {
     const auto data = GetAppIconData_nid_postfix();
     auto image = Decoder::Png::Decode(std::span<const std::uint8_t>(data.bytes, static_cast<std::size_t>(data.size)));
     require(image.has_value(), "failed to decode icon0.png");
-    SDL_Surface* icon = SDL_CreateRGBSurfaceWithFormatFrom(image->pixels.data(), static_cast<int>(image->width), static_cast<int>(image->height), 32, static_cast<int>(image->width * 4), SDL_PIXELFORMAT_RGBA32);
+    SDL_Surface* icon = SDL_CreateSurfaceFrom(static_cast<int>(image->width), static_cast<int>(image->height), SDL_PIXELFORMAT_RGBA32, image->pixels.data(), static_cast<int>(image->width * 4));
     require(icon != nullptr, SDL_GetError());
     SDL_SetWindowIcon(window, icon);
-    SDL_FreeSurface(icon);
+    SDL_DestroySurface(icon);
 }
 
 #ifdef _WIN32
@@ -51,7 +52,7 @@ void DisplayWindow::Ensure(std::uint32_t sourceWidth, std::uint32_t sourceHeight
 
 void DisplayWindow::create(std::uint32_t sourceWidth, std::uint32_t sourceHeight) {
     SDL_Rect usable{};
-    require(SDL_GetDisplayUsableBounds(0, &usable) == 0, SDL_GetError());
+    require(SDL_GetDisplayUsableBounds(SDL_GetPrimaryDisplay(), &usable), SDL_GetError());
     require(DisplayWindowInitialSizePercent > 0 && DisplayWindowInitialSizePercent <= 100, "initial window size percent must be between 1 and 100");
     require(usable.w > 0 && usable.h > 0, "usable display extent must be positive");
     const auto boundsWidth = static_cast<std::uint32_t>(static_cast<std::uint64_t>(usable.w) * DisplayWindowInitialSizePercent / 100);
@@ -60,9 +61,9 @@ void DisplayWindow::create(std::uint32_t sourceWidth, std::uint32_t sourceHeight
     require(initialSize.width >= DisplayWindowMinimumWidth && initialSize.height >= DisplayWindowMinimumHeight, "initial window extent is smaller than the minimum");
     const auto title = GetAppTitle_nid_postfix();
     AgcDriverLockVulkanLoader_nid_postfix();
-    window = SDL_CreateWindow(title.value, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, static_cast<int>(initialSize.width), static_cast<int>(initialSize.height), SDL_WINDOW_SHOWN | SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI);
+    window = SDL_CreateWindow(title.value, static_cast<int>(initialSize.width), static_cast<int>(initialSize.height), SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY);
     AgcDriverUnlockVulkanLoader_nid_postfix();
-    require(window != nullptr, SDL_GetError());
+    if (!window) throw std::runtime_error(std::string("DisplayWindow: Vulkan support unavailable: ") + SDL_GetError());
     SDL_SetWindowMinimumSize(window, static_cast<int>(DisplayWindowMinimumWidth), static_cast<int>(DisplayWindowMinimumHeight));
     applyAppIcon(window);
     installSubclass();
@@ -86,8 +87,8 @@ SDL_Window* DisplayWindow::Handle() const {
 
 void DisplayWindow::ToggleFullscreen() {
     require(window != nullptr, "window must exist before toggling fullscreen");
-    const auto flags = (SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN) != 0 ? 0u : static_cast<Uint32>(SDL_WINDOW_FULLSCREEN_DESKTOP);
-    require(SDL_SetWindowFullscreen(window, flags) == 0, SDL_GetError());
+    const auto flags = (SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN) != 0 ? 0u : 1u;
+    require(SDL_SetWindowFullscreen(window, flags != 0), SDL_GetError());
 }
 
 void DisplayWindow::DrawableSize(std::uint32_t& width, std::uint32_t& height) const {
@@ -98,7 +99,7 @@ void DisplayWindow::DrawableSize(std::uint32_t& width, std::uint32_t& height) co
     }
     int drawableWidth = 0;
     int drawableHeight = 0;
-    SDL_Vulkan_GetDrawableSize(window, &drawableWidth, &drawableHeight);
+    SDL_GetWindowSizeInPixels(window, &drawableWidth, &drawableHeight);
     width = drawableWidth > 0 ? static_cast<std::uint32_t>(drawableWidth) : 0;
     height = drawableHeight > 0 ? static_cast<std::uint32_t>(drawableHeight) : 0;
 }
@@ -126,11 +127,11 @@ void DisplayWindow::UpdateTitle() {
 
 void DisplayWindow::installSubclass() {
 #ifdef _WIN32
-    SDL_SysWMinfo info;
-    SDL_VERSION(&info.version);
-    require(SDL_GetWindowWMInfo(window, &info) == SDL_TRUE, SDL_GetError());
-    require(info.subsystem == SDL_SYSWM_WINDOWS, "unsupported window subsystem");
-    const auto attached = SetWindowSubclass(info.info.win.window, reinterpret_cast<SUBCLASSPROC>(&DisplayWindow::windowProc), DisplayWindowSubclassId, reinterpret_cast<DWORD_PTR>(this));
+    const char* driver = SDL_GetCurrentVideoDriver();
+    if (!driver || std::strcmp(driver, "windows") != 0) return;
+    const auto hwnd = static_cast<HWND>(SDL_GetPointerProperty(SDL_GetWindowProperties(window), SDL_PROP_WINDOW_WIN32_HWND_POINTER, nullptr));
+    require(hwnd != nullptr, SDL_GetError());
+    const auto attached = SetWindowSubclass(hwnd, reinterpret_cast<SUBCLASSPROC>(&DisplayWindow::windowProc), DisplayWindowSubclassId, reinterpret_cast<DWORD_PTR>(this));
     require(attached != FALSE, "SetWindowSubclass failed");
 #endif
 }
@@ -138,11 +139,8 @@ void DisplayWindow::installSubclass() {
 void DisplayWindow::removeSubclass() noexcept {
 #ifdef _WIN32
     if (window == nullptr) return;
-    SDL_SysWMinfo info;
-    SDL_VERSION(&info.version);
-    if (SDL_GetWindowWMInfo(window, &info) != SDL_TRUE) return;
-    if (info.subsystem != SDL_SYSWM_WINDOWS) return;
-    RemoveWindowSubclass(info.info.win.window, reinterpret_cast<SUBCLASSPROC>(&DisplayWindow::windowProc), DisplayWindowSubclassId);
+    const auto hwnd = static_cast<HWND>(SDL_GetPointerProperty(SDL_GetWindowProperties(window), SDL_PROP_WINDOW_WIN32_HWND_POINTER, nullptr));
+    if (hwnd) RemoveWindowSubclass(hwnd, reinterpret_cast<SUBCLASSPROC>(&DisplayWindow::windowProc), DisplayWindowSubclassId);
 #endif
 }
 

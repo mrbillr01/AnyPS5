@@ -1,4 +1,5 @@
 #include <bit>
+#include <cmath>
 #include <chrono>
 #include <cstdlib>
 #include <cstring>
@@ -9,8 +10,8 @@
 #include <stdexcept>
 #include <string>
 
-#include "SDL.h"
-#include "SDL_vulkan.h"
+#include <SDL3/SDL.h>
+#include <SDL3/SDL_vulkan.h>
 #include "prx/libSceVideoOut/include/PadInput.hpp"
 #include "prx/libSceVideoOut/include/MouseInput.hpp"
 #include "prx/libSceAgcDriver/Execution/include/AspectFit.hpp"
@@ -43,16 +44,21 @@ void require(bool condition, const char* reason) {
 
 std::vector<const char*> windowExtensions(SDL_Window* window) {
     unsigned extensionCount = 0;
-    if (!SDL_Vulkan_GetInstanceExtensions(window, &extensionCount, nullptr)) throw std::runtime_error(std::string("SDL_Vulkan_GetInstanceExtensions failed: ") + SDL_GetError());
-    std::vector<const char*> extensions(extensionCount);
-    if (!SDL_Vulkan_GetInstanceExtensions(window, &extensionCount, extensions.data())) throw std::runtime_error(std::string("SDL_Vulkan_GetInstanceExtensions failed: ") + SDL_GetError());
-    extensions.resize(extensionCount);
+    const char* const* names = SDL_Vulkan_GetInstanceExtensions(&extensionCount);
+    if (!names) throw std::runtime_error(std::string("SDL_Vulkan_GetInstanceExtensions failed: ") + SDL_GetError());
+    std::vector<const char*> extensions(names, names + extensionCount);
+    const char* driver = SDL_GetCurrentVideoDriver();
+    if (driver && std::strcmp(driver, "offscreen") == 0) {
+        bool headless = false;
+        for (const char* name : extensions) headless |= std::strcmp(name, VK_EXT_HEADLESS_SURFACE_EXTENSION_NAME) == 0;
+        if (!headless) throw std::runtime_error("Vulkan support unavailable: offscreen presentation requires VK_EXT_headless_surface");
+    }
     return extensions;
 }
 
 VkSurfaceKHR createWindowSurface(void* context, VkInstance instance) {
     VkSurfaceKHR surface = VK_NULL_HANDLE;
-    if (!SDL_Vulkan_CreateSurface(static_cast<SDL_Window*>(context), instance, &surface)) throw std::runtime_error(std::string("SDL_Vulkan_CreateSurface failed: ") + SDL_GetError());
+    if (!SDL_Vulkan_CreateSurface(static_cast<SDL_Window*>(context), instance, nullptr, &surface)) throw std::runtime_error(std::string("SDL_Vulkan_CreateSurface failed: ") + SDL_GetError());
     return surface;
 }
 
@@ -64,7 +70,7 @@ void windowDrawableSize(void* context, std::uint32_t* width, std::uint32_t* heig
     }
     int drawableWidth = 0;
     int drawableHeight = 0;
-    SDL_Vulkan_GetDrawableSize(static_cast<SDL_Window*>(context), &drawableWidth, &drawableHeight);
+    SDL_GetWindowSizeInPixels(static_cast<SDL_Window*>(context), &drawableWidth, &drawableHeight);
     *width = drawableWidth > 0 ? static_cast<std::uint32_t>(drawableWidth) : 0;
     *height = drawableHeight > 0 ? static_cast<std::uint32_t>(drawableHeight) : 0;
 }
@@ -269,14 +275,13 @@ VideoOutDriver& VideoOutDriver::Get() {
 }
 
 VideoOutDriver::VideoOutDriver() {
-    SDL_SetHint(SDL_HINT_WINDOWS_DPI_AWARENESS, "permonitorv2");
 #ifdef _WIN32
-    SDL_SetHintWithPriority(SDL_HINT_DIRECTINPUT_ENABLED, "0", SDL_HINT_DEFAULT);
+    SDL_SetHintWithPriority(SDL_HINT_JOYSTICK_DIRECTINPUT, "0", SDL_HINT_DEFAULT);
 #endif
 #ifdef __linux__
     SDL_SetHint(SDL_HINT_VIDEODRIVER, "wayland,x11");
 #endif
-    if (SDL_InitSubSystem(SDL_INIT_VIDEO | SDL_INIT_GAMECONTROLLER) < 0) {
+    if (!SDL_InitSubSystem(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD)) {
         throw std::runtime_error(std::string("SDL_InitSubSystem(VIDEO | GAMECONTROLLER) failed: ") + SDL_GetError());
     }
     try {
@@ -306,7 +311,7 @@ VideoOutDriver::VideoOutDriver() {
             flipQueue->changed.NotifyAll();
             presentThread.join();
         }
-        SDL_QuitSubSystem(SDL_INIT_VIDEO | SDL_INIT_GAMECONTROLLER);
+        SDL_QuitSubSystem(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD);
         throw;
     }
 }
@@ -335,7 +340,7 @@ void VideoOutDriver::Shutdown() {
             if (outputs[handle]) close(handle);
         }
     }
-    SDL_QuitSubSystem(SDL_INIT_VIDEO | SDL_INIT_GAMECONTROLLER);
+    SDL_QuitSubSystem(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD);
     stopped = true;
     std::lock_guard lock(flipQueue->mutex);
     if (flipQueue->failure) std::rethrow_exception(flipQueue->failure);
@@ -492,11 +497,11 @@ int VideoOutDriver::GetDisplayRefreshRate() {
 }
 
 void VideoOutDriver::updateDisplayRefreshRate() {
-    const int display = SDL_GetWindowDisplayIndex(window.Handle());
-    if (display < 0) throw std::runtime_error(std::string("SDL_GetWindowDisplayIndex failed: ") + SDL_GetError());
-    SDL_DisplayMode mode{};
-    if (SDL_GetCurrentDisplayMode(display, &mode) != 0) throw std::runtime_error(std::string("SDL_GetCurrentDisplayMode failed: ") + SDL_GetError());
-    displayRefreshRate.store(mode.refresh_rate);
+    const SDL_DisplayID display = SDL_GetDisplayForWindow(window.Handle());
+    if (display == 0) throw std::runtime_error(std::string("SDL_GetDisplayForWindow failed: ") + SDL_GetError());
+    const SDL_DisplayMode* mode = SDL_GetCurrentDisplayMode(display);
+    if (!mode) throw std::runtime_error(std::string("SDL_GetCurrentDisplayMode failed: ") + SDL_GetError());
+    displayRefreshRate.store(static_cast<int>(std::lround(mode->refresh_rate)));
 }
 
 void VideoOutDriver::pollHostHdr() {
@@ -666,7 +671,7 @@ void VideoOutDriver::presentLoop(std::stop_token token, std::promise<void>& star
 
             SDL_Event event;
             while (SDL_PollEvent(&event)) {
-                if (event.type == SDL_QUIT) {
+                if (event.type == SDL_EVENT_QUIT) {
                     LibcRequestExit_nid_postfix(0);
                     throw ProcessShutdown{};
                 }

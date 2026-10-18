@@ -2,12 +2,11 @@
 #include "prx/libc/include/General.hpp"
 
 #include <mbedtls/asn1.h>
-#include <mbedtls/ctr_drbg.h>
-#include <mbedtls/entropy.h>
 #include <mbedtls/pk.h>
 #include <mbedtls/platform.h>
 #include <mbedtls/platform_util.h>
 #include <mbedtls/x509_crt.h>
+#include <psa/crypto.h>
 
 #include <algorithm>
 #include <cstdlib>
@@ -40,32 +39,33 @@ struct alignas(std::max_align_t) Allocation {
 thread_local Pool* currentPool = nullptr;
 
 void* PoolCalloc(std::size_t count, std::size_t size) noexcept {
-    if (!currentPool) return nullptr;
     if (size && count > std::numeric_limits<std::size_t>::max() / size) {
-        currentPool->exhausted = true;
+        if (currentPool) currentPool->exhausted = true;
         return nullptr;
     }
     const auto bytes = count * size;
-    if (bytes > currentPool->size - currentPool->current || bytes > std::numeric_limits<std::size_t>::max() - sizeof(Allocation)) {
-        currentPool->exhausted = true;
+    if ((currentPool && bytes > currentPool->size - currentPool->current) || bytes > std::numeric_limits<std::size_t>::max() - sizeof(Allocation)) {
+        if (currentPool) currentPool->exhausted = true;
         return nullptr;
     }
     auto* allocation = static_cast<Allocation*>(std::calloc(1, sizeof(Allocation) + bytes));
     if (!allocation) {
-        currentPool->exhausted = true;
+        if (currentPool) currentPool->exhausted = true;
         return nullptr;
     }
     allocation->pool = currentPool;
     allocation->size = bytes;
-    currentPool->current += bytes;
-    currentPool->peak = std::max(currentPool->peak, currentPool->current);
+    if (currentPool) {
+        currentPool->current += bytes;
+        currentPool->peak = std::max(currentPool->peak, currentPool->current);
+    }
     return allocation + 1;
 }
 
 void PoolFree(void* pointer) noexcept {
     if (!pointer) return;
     auto* allocation = static_cast<Allocation*>(pointer) - 1;
-    allocation->pool->current -= allocation->size;
+    if (allocation->pool) allocation->pool->current -= allocation->size;
     mbedtls_platform_zeroize(pointer, allocation->size);
     std::free(allocation);
 }
@@ -95,7 +95,7 @@ std::size_t Add(std::size_t left, std::size_t right) {
 
 void CheckBackend(int error, const char* message) {
     if (error == 0) return;
-    if (currentPool && currentPool->exhausted) throw std::bad_alloc();
+    if (error == PSA_ERROR_INSUFFICIENT_MEMORY || (currentPool && currentPool->exhausted)) throw std::bad_alloc();
     throw std::invalid_argument(message);
 }
 
@@ -117,22 +117,6 @@ struct PrivateKey {
     mbedtls_pk_context key;
     PrivateKey() { mbedtls_pk_init(&key); }
     ~PrivateKey() { mbedtls_pk_free(&key); }
-};
-
-struct Random {
-    mbedtls_entropy_context entropy;
-    mbedtls_ctr_drbg_context drbg;
-    Random() {
-        mbedtls_entropy_init(&entropy);
-        mbedtls_ctr_drbg_init(&drbg);
-    }
-    ~Random() {
-        mbedtls_ctr_drbg_free(&drbg);
-        mbedtls_entropy_free(&entropy);
-    }
-    void Seed() {
-        CheckBackend(mbedtls_ctr_drbg_seed(&drbg, mbedtls_entropy_func, &entropy, nullptr, 0), "SSL random generator initialization failed");
-    }
 };
 
 struct Identity {
@@ -174,6 +158,9 @@ struct Runtime {
     Runtime() {
         if (mbedtls_platform_set_calloc_free(PoolCalloc, PoolFree) != 0)
             throw std::runtime_error("SSL allocator initialization failed");
+        // PSA's process-wide random state must not borrow a guest context's pool.
+        if (psa_crypto_init() != PSA_SUCCESS)
+            throw std::runtime_error("SSL crypto initialization failed");
     }
 };
 
@@ -295,11 +282,8 @@ int APS5_VABI sceSslLoadCert(int sslCtxId, int caCertNum, SceSsl::Data** caList,
         identity = std::make_shared<Identity>();
         identity->chain = ParseCertificate(*cert);
         const auto key = CopyInput(*privateKey);
-        Random random;
-        random.Seed();
-        CheckBackend(mbedtls_pk_parse_key(&identity->key.key, key.bytes.get(), key.size, nullptr, 0,
-            mbedtls_ctr_drbg_random, &random.drbg), "Invalid SSL private key");
-        CheckBackend(mbedtls_pk_check_pair(&identity->chain->root.pk, &identity->key.key, mbedtls_ctr_drbg_random, &random.drbg),
+        CheckBackend(mbedtls_pk_parse_key(&identity->key.key, key.bytes.get(), key.size, nullptr, 0), "Invalid SSL private key");
+        CheckBackend(mbedtls_pk_check_pair(&identity->chain->root.pk, &identity->key.key),
             "SSL client certificate and private key do not match");
     }
     context.authorities.reserve(Add(context.authorities.size(), authorities.size()));

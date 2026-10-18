@@ -12,7 +12,7 @@
 #include <vector>
 #include <prx/libc/include/General.hpp>
 
-#include "SDL.h"
+#include <SDL3/SDL.h>
 #include "SceTypes.hpp"
 #include "prx/libc/include/PreciseWait.hpp"
 #include "prx/libc/include/Shutdown.hpp"
@@ -87,7 +87,7 @@ static int channelsForFormat(Format f) {
 }
 
 static SDL_AudioFormat sdlFormat(Format f) {
-    return formatIsFloat(f) ? AUDIO_F32SYS : AUDIO_S16SYS;
+    return formatIsFloat(f) ? SDL_AUDIO_F32 : SDL_AUDIO_S16;
 }
 
 static std::uint32_t bytesPerSample(Format f) {
@@ -105,7 +105,7 @@ struct Port {
     int mixLevel = DEFAULT_VOLUME;
     std::uint64_t lastDataOutputTime = 0;
     std::uint64_t virtualQueueEnd = 0;
-    SDL_AudioDeviceID device = 0;
+    SDL_AudioStream* device = nullptr;
     SDL_AudioSpec spec = {};
 };
 
@@ -133,22 +133,21 @@ static bool openDevice(Port& port) {
     desired.freq = static_cast<int>(port.freq);
     desired.format = sdlFormat(port.format);
     desired.channels = static_cast<Uint8>(port.channels);
-    desired.samples = static_cast<Uint16>(port.samplesNum);
-    desired.callback = nullptr;
-    SDL_AudioSpec obtained{};
-    port.device = SDL_OpenAudioDevice(nullptr, 0, &desired, &obtained, 0);
-    if (port.device == 0) {
+    port.device = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &desired, nullptr, nullptr);
+    if (!port.device) return false;
+    port.spec = desired;
+    if (!SDL_ResumeAudioStreamDevice(port.device)) {
+        SDL_DestroyAudioStream(port.device);
+        port.device = nullptr;
         return false;
     }
-    port.spec = obtained;
-    SDL_PauseAudioDevice(port.device, 0);
     return true;
 }
 
 static void closeDevice(Port& port) {
     if (port.device != 0 && SDL_WasInit(SDL_INIT_AUDIO) != 0) {
-        SDL_ClearQueuedAudio(port.device);
-        SDL_CloseAudioDevice(port.device);
+        SDL_ClearAudioStream(port.device);
+        SDL_DestroyAudioStream(port.device);
     }
     port.device = 0;
     port.spec = {};
@@ -215,9 +214,9 @@ static void sleepUs(std::unique_lock<std::mutex>& lock, std::uint64_t us) {
 static void queueAudio(Port& port, const void* data, std::unique_lock<std::mutex>& lock) {
     if (data == nullptr) {
         const std::uint64_t waitStart = sceKernelGetProcessTime();
-        while (SDL_GetQueuedAudioSize(port.device) > 0) {
+        while (SDL_GetAudioStreamQueued(port.device) > 0) {
             if (sceKernelGetProcessTime() - waitStart > DRAIN_TIMEOUT_US) {
-                SDL_ClearQueuedAudio(port.device);
+                SDL_ClearAudioStream(port.device);
                 break;
             }
             sleepUs(lock, DRAIN_SLEEP_US);
@@ -242,18 +241,18 @@ static void queueAudio(Port& port, const void* data, std::unique_lock<std::mutex
     const std::uint32_t minQueued = queueSize * std::clamp(buffers, 2u, 16u);
     const std::uint64_t waitStart = sceKernelGetProcessTime();
 
-    while (SDL_GetQueuedAudioSize(port.device) > minQueued) {
+    while (SDL_GetAudioStreamQueued(port.device) > minQueued) {
         if (sceKernelGetProcessTime() - waitStart > DRAIN_TIMEOUT_US) {
-            SDL_ClearQueuedAudio(port.device);
+            SDL_ClearAudioStream(port.device);
             break;
         }
         sleepUs(lock, DRAIN_SLEEP_US);
     }
 
-    if (SDL_QueueAudio(port.device, queueData, queueSize) < 0) {
+    if (!SDL_PutAudioStreamData(port.device, queueData, static_cast<int>(queueSize))) {
         throw std::runtime_error(std::string("SDL_QueueAudio: ") + SDL_GetError());
     }
-    // APS5_LOG_OUT("device=%u type=%d bytes=%u queued=%u", port.device, port.type, queueSize, SDL_GetQueuedAudioSize(port.device));
+    // APS5_LOG_OUT("device=%u type=%d bytes=%u queued=%u", port.device, port.type, queueSize, SDL_GetAudioStreamQueued(port.device));
 }
 
 static void paceVirtualPort(Port& port, bool hasData, std::unique_lock<std::mutex>& lock) {
@@ -304,7 +303,7 @@ static int allocatePort(int type, std::uint32_t len, std::uint32_t freq, Format 
                 openDevice(port);
             }
             static const bool trace = std::getenv("APS5_TRACE_AUDIOOUT") != nullptr;
-            if (trace) std::fprintf(stderr, "[audioout] port %d: type %d, %u samples at %u Hz, format %d, device %u\n", i + 1, type, len, freq, static_cast<int>(format), static_cast<unsigned>(port.device));
+            if (trace) std::fprintf(stderr, "[audioout] port %d: type %d, %u samples at %u Hz, format %d, device %u\n", i + 1, type, len, freq, static_cast<int>(format), static_cast<unsigned>(port.device ? SDL_GetAudioStreamDevice(port.device) : 0));
             return i + 1;
         }
     }

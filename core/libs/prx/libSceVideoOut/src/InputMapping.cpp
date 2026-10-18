@@ -14,8 +14,8 @@
 #include <string_view>
 #include <unordered_set>
 
-#include "SDL_keyboard.h"
-#include "SDL_filesystem.h"
+#include <SDL3/SDL_keyboard.h>
+#include <SDL3/SDL_filesystem.h>
 
 namespace {
 
@@ -238,8 +238,8 @@ std::filesystem::path configuredPath() {
 }
 
 std::filesystem::path defaultConfigPath() {
-    std::unique_ptr<char, decltype(&SDL_free)> basePath(SDL_GetBasePath(), SDL_free);
-    if (basePath) return pathFromUtf8(basePath.get()) / "anyps5-input.ini";
+    const char* basePath = SDL_GetBasePath();
+    if (basePath) return pathFromUtf8(basePath) / "anyps5-input.ini";
     return "anyps5-input.ini";
 }
 

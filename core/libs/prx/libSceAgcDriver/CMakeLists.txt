@@ -251,10 +251,6 @@ add_custom_target(agc_trace_revision
         BYPRODUCTS ${agcTraceRevisionHeader}
         VERBATIM
 )
-set(agcZlibIncludeDir ${CMAKE_SOURCE_DIR}/3rdparty/libjpeg-turbo/src/spng/zlib)
-set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/Execution/src/TraceFile.cpp PROPERTIES
-        INCLUDE_DIRECTORIES ${agcZlibIncludeDir}
-)
 
 add_library(libSceAgcDriver SHARED EXCLUDE_FROM_ALL
         ${agcDriverSources}
@@ -282,10 +278,11 @@ add_shader_recompiler(shader_recompiler_agc_driver libc
 
 target_link_libraries(libSceAgcDriver PRIVATE
         shader_recompiler_agc_driver
-        SDL2-static
+        SDL3::SDL3
         libc
         libkernel
         jpeg_turbo
+        ZLIB::ZLIB
         ${CMAKE_DL_LIBS}
 )
 if(APS5_ENABLE_TRACY)
@@ -360,8 +357,8 @@ if(BUILD_TESTING)
     endif()
 
     add_test_executable(agc_performance_trace_tests tests/PerformanceTrace.cpp Execution/src/TraceFile.cpp)
-    target_include_directories(agc_performance_trace_tests PRIVATE ${LIBS_INCLUDE_DIR} ${agcZlibIncludeDir})
-    target_link_libraries(agc_performance_trace_tests PRIVATE libc jpeg_turbo)
+    target_include_directories(agc_performance_trace_tests PRIVATE ${LIBS_INCLUDE_DIR})
+    target_link_libraries(agc_performance_trace_tests PRIVATE libc ZLIB::ZLIB)
     configure_windows_unwind(agc_performance_trace_tests)
     add_test(NAME agc_performance_trace COMMAND agc_performance_trace_tests)
     set_tests_properties(agc_performance_trace PROPERTIES TIMEOUT 20)
@@ -992,7 +989,7 @@ target_include_directories(agc_driver_cmask_fast_clear_tests PRIVATE
 
 target_link_libraries(agc_driver_cmask_fast_clear_tests PRIVATE
         libSceAgcDriver
-        SDL2-static
+        SDL3::SDL3
         libc
 )
 
@@ -1032,7 +1029,7 @@ target_include_directories(agc_driver_recorder_tests PRIVATE
 target_link_libraries(agc_driver_recorder_tests PRIVATE
         libkernel
         libSceAgcDriver
-        SDL2-static
+        SDL3::SDL3
         libc
 )
 
@@ -1238,7 +1235,7 @@ target_include_directories(agc_driver_presentation_pass_tests PRIVATE
 
 target_link_libraries(agc_driver_presentation_pass_tests PRIVATE
         libSceAgcDriver
-        SDL2-static
+        SDL3::SDL3
         libc
 )
 
@@ -1349,7 +1346,7 @@ target_include_directories(agc_driver_bda_device_tests PRIVATE
         ${CMAKE_SOURCE_DIR}/core/shader/recompiler
         ${ANYPS5_VULKAN_HEADERS_INCLUDE_DIR}
 )
-target_link_libraries(agc_driver_bda_device_tests PRIVATE libSceAgcDriver SDL2-static libc)
+target_link_libraries(agc_driver_bda_device_tests PRIVATE libSceAgcDriver SDL3::SDL3 libc)
 set_target_properties(agc_driver_bda_device_tests PROPERTIES CXX_EXTENSIONS OFF)
 configure_windows_unwind(agc_driver_bda_device_tests)
 
@@ -1360,7 +1357,7 @@ target_include_directories(agc_driver_mesh_tests PRIVATE
         ${ANYPS5_VULKAN_HEADERS_INCLUDE_DIR}
         ${ANYPS5_SPIRV_HEADERS_INCLUDE_DIR}
 )
-target_link_libraries(agc_driver_mesh_tests PRIVATE libSceAgcDriver SDL2-static libc)
+target_link_libraries(agc_driver_mesh_tests PRIVATE libSceAgcDriver SDL3::SDL3 libc)
 set_target_properties(agc_driver_mesh_tests PROPERTIES CXX_EXTENSIONS OFF)
 configure_windows_unwind(agc_driver_mesh_tests)
 
@@ -1381,7 +1378,7 @@ foreach(agcExecutionTestSource IN LISTS agcExecutionTestSources)
             ${ANYPS5_VULKAN_HEADERS_INCLUDE_DIR}
             ${ANYPS5_SPIRV_HEADERS_INCLUDE_DIR}
     )
-    target_link_libraries(${agcExecutionTest} PRIVATE libSceAgcDriver SDL2-static libc)
+    target_link_libraries(${agcExecutionTest} PRIVATE libSceAgcDriver SDL3::SDL3 libc)
     set_target_properties(${agcExecutionTest} PROPERTIES CXX_EXTENSIONS OFF)
     configure_windows_unwind(${agcExecutionTest})
     list(APPEND agcExecutionTests ${agcExecutionTest})
@@ -1526,6 +1523,9 @@ if(BUILD_TESTING)
         endif()
     endforeach()
     add_test(NAME agc_driver_partially_resident_pending_stores COMMAND agc_driver_partially_resident_snapshot_tests --pending-stores)
+    # The host-import sentinel probe is sensitive to concurrent GPU workloads.
+    # Keep its memory-coherency assertions intact and give it exclusive execution.
+    set_tests_properties(agc_driver_multisample_fill_host_only PROPERTIES RUN_SERIAL TRUE)
     set_tests_properties(agc_driver_partially_resident_pending_stores PROPERTIES ENVIRONMENT "ANYPS5_NO_SHADER_CACHE=1" SKIP_RETURN_CODE 77 WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}" TIMEOUT 30)
     if(WIN32)
         set_tests_properties(agc_driver_partially_resident_pending_stores PROPERTIES ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:libc>")
@@ -1826,7 +1826,7 @@ if(AGC_BUILD_VISUAL_TEST)
 
     target_link_libraries(agc_driver_visual_test PRIVATE
             shader_recompiler_agc_driver
-            SDL2-static
+            SDL3::SDL3
             libc
             libkernel
             jpeg_turbo
@@ -2355,4 +2355,11 @@ if(BUILD_TESTING)
         set_tests_properties(agc_constant_phi PROPERTIES ENVIRONMENT_MODIFICATION
             "PATH=path_list_prepend:$<TARGET_FILE_DIR:libc>")
     endif()
+endif()
+
+if(WIN32)
+    foreach(tool IN ITEMS agc_pm4_replay agc_compute_pipeline_replay)
+        add_custom_command(TARGET ${tool} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:SDL3::SDL3> $<TARGET_FILE_DIR:${tool}>)
+    endforeach()
 endif()

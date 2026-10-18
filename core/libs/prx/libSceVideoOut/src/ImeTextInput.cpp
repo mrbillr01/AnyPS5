@@ -3,20 +3,20 @@
 
 #include <cstring>
 
-#include "SDL_keyboard.h"
+#include <SDL3/SDL_keyboard.h>
 
 void ImeTextInput::HandleEvent(const SDL_Event& event, unsigned windowId) {
     ImeHostInput input{};
     switch (event.type) {
-        case SDL_TEXTINPUT:
+        case SDL_EVENT_TEXT_INPUT:
             if (event.text.windowID != windowId) return;
-            static_assert(sizeof(input.text) >= sizeof(event.text.text));
-            std::memcpy(input.text, event.text.text, sizeof(event.text.text));
+            if (!event.text.text) return;
+            std::strncpy(input.text, event.text.text, sizeof(input.text) - 1);
             input.kind = ImeHostInputKind::Text;
             break;
-        case SDL_KEYDOWN:
+        case SDL_EVENT_KEY_DOWN:
             if (event.key.windowID != windowId) return;
-            switch (event.key.keysym.scancode) {
+            switch (event.key.scancode) {
                 case SDL_SCANCODE_BACKSPACE: input.kind = ImeHostInputKind::Backspace; break;
                 case SDL_SCANCODE_DELETE: input.kind = ImeHostInputKind::Delete; break;
                 case SDL_SCANCODE_LEFT: input.kind = ImeHostInputKind::Left; break;

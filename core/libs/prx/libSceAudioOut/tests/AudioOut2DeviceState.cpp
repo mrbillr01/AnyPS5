@@ -1,3 +1,4 @@
+#include <SDL3/SDL.h>
 #include "SceTypes.hpp"
 
 #include <cstddef>
@@ -39,8 +40,10 @@ std::uint32_t Format(std::uint32_t channels, std::uint32_t type) {
 void SetEnvironment(const char* name, const std::string& value) {
 #ifdef _WIN32
     _putenv_s(name, value.c_str());
+    SDL_SetEnvironmentVariable(SDL_GetEnvironment(), name, value.c_str(), true);
 #else
     setenv(name, value.c_str(), 1);
+    SDL_SetEnvironmentVariable(SDL_GetEnvironment(), name, value.c_str(), true);
 #endif
 }
 
@@ -117,7 +120,7 @@ void SystemStateIsSilentAndRejectsNull() {
 int main() {
     const auto path = std::filesystem::temp_directory_path() / ("anyps5_audio_out2_device_state-" + std::to_string(std::random_device{}()) + ".raw");
     std::filesystem::remove(path);
-    SetEnvironment("SDL_DISKAUDIOFILE", path.string());
+    SetEnvironment("SDL_AUDIO_DISK_OUTPUT_FILE", path.string());
 
     AudioOut2ContextParam params{};
     Require(sceAudioOut2ContextResetParam(&params) == 0);

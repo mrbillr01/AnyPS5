@@ -1,8 +1,8 @@
 #ifndef CORE_LIBS_PRX_LIBSCEVIDEOOUT_PADINPUT_HPP
 #define CORE_LIBS_PRX_LIBSCEVIDEOOUT_PADINPUT_HPP
 
-#include "SDL_events.h"
-#include "SDL_gamecontroller.h"
+#include <SDL3/SDL_events.h>
+#include <SDL3/SDL_gamepad.h>
 #include "prx/libScePad/include/KeyboardMouse.hpp"
 #include "prx/libScePad/include/PadState.hpp"
 #include <chrono>
@@ -29,7 +29,7 @@ private:
     void enableSensors();
 
     Pad::KeyboardMouse keyboardMouse;
-    SDL_GameController* controller = nullptr;
+    SDL_Gamepad* controller = nullptr;
     PadInputState controllerState{};
     std::uint32_t outputSequence = 0;
     PadOutputState outputState{};

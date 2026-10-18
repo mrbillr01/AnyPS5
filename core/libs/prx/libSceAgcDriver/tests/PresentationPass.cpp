@@ -7,7 +7,7 @@
 #include "prx/libSceAgcDriver/Graphics/include/ColorTargetLayout.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/Resources.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/TextureFormat.hpp"
-#include <SDL_loadso.h>
+#include <SDL3/SDL_loadso.h>
 #include <algorithm>
 #include <array>
 #include <cstdio>
@@ -110,7 +110,7 @@ private:
         if (library != nullptr) SDL_UnloadObject(library);
     }
 
-    void* library = nullptr;
+    SDL_SharedObject* library = nullptr;
     PFN_vkGetInstanceProcAddr instanceProc = nullptr;
     VkInstance instance = VK_NULL_HANDLE;
     Context context{};

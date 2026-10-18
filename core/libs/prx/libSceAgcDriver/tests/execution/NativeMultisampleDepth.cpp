@@ -12,7 +12,7 @@
 #include "prx/libc/include/GuestWriteWatch.hpp"
 #include "SpirvBackend/SpirvModule.hpp"
 #include "VulkanTestDevice.hpp"
-#include <SDL_loadso.h>
+#include <SDL3/SDL_loadso.h>
 #include <algorithm>
 #include <array>
 #include <bit>
@@ -128,7 +128,7 @@ private:
         if (instance) function<PFN_vkDestroyInstance>("vkDestroyInstance")(instance, nullptr);
         if (library) SDL_UnloadObject(library);
     }
-    void* library = nullptr;
+    SDL_SharedObject* library = nullptr;
     PFN_vkGetInstanceProcAddr proc = nullptr;
     VkInstance instance = VK_NULL_HANDLE;
     Context context{};

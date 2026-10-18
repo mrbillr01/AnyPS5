@@ -1,8 +1,8 @@
 #include "prx/libSceKeyboard/include/keyboard_structs.h"
 #include "prx/libSceKeyboard/include/KeyboardState.hpp"
 #include "prx/libSceVideoOut/include/KeyboardInput.hpp"
-#include "SDL_events.h"
-#include "SDL_keyboard.h"
+#include <SDL3/SDL_events.h>
+#include <SDL3/SDL_keyboard.h>
 
 #include <cstdlib>
 
@@ -22,8 +22,8 @@ static SDL_Event KeyEvent(Uint32 type, SDL_Scancode scancode, Uint16 mod = 0, Ui
     event.type = type;
     event.key.windowID = 7;
     event.key.repeat = repeat;
-    event.key.keysym.scancode = scancode;
-    event.key.keysym.mod = mod;
+    event.key.scancode = scancode;
+    event.key.mod = mod;
     return event;
 }
 
@@ -58,13 +58,13 @@ int main() {
     Require(sceKeyboardRead(KEYBOARD_HANDLE, data, 1) == 0);
 
     KeyboardInput input;
-    input.HandleEvent(KeyEvent(SDL_KEYDOWN, SDL_SCANCODE_A), 8);
+    input.HandleEvent(KeyEvent(SDL_EVENT_KEY_DOWN, SDL_SCANCODE_A), 8);
     Require(sceKeyboardRead(KEYBOARD_HANDLE, data, 1) == 0);
-    input.HandleEvent(KeyEvent(SDL_KEYDOWN, SDL_SCANCODE_LSHIFT, KMOD_NUM), 7);
-    input.HandleEvent(KeyEvent(SDL_KEYDOWN, SDL_SCANCODE_A, KMOD_NUM | KMOD_LSHIFT), 7);
-    input.HandleEvent(KeyEvent(SDL_KEYDOWN, SDL_SCANCODE_A, KMOD_NUM | KMOD_LSHIFT, 1), 7);
-    input.HandleEvent(KeyEvent(SDL_KEYDOWN, SDL_SCANCODE_RETURN, KMOD_NUM | KMOD_LSHIFT), 7);
-    input.HandleEvent(KeyEvent(SDL_KEYUP, SDL_SCANCODE_A, KMOD_NUM | KMOD_LSHIFT), 7);
+    input.HandleEvent(KeyEvent(SDL_EVENT_KEY_DOWN, SDL_SCANCODE_LSHIFT, SDL_KMOD_NUM), 7);
+    input.HandleEvent(KeyEvent(SDL_EVENT_KEY_DOWN, SDL_SCANCODE_A, SDL_KMOD_NUM | SDL_KMOD_LSHIFT), 7);
+    input.HandleEvent(KeyEvent(SDL_EVENT_KEY_DOWN, SDL_SCANCODE_A, SDL_KMOD_NUM | SDL_KMOD_LSHIFT, 1), 7);
+    input.HandleEvent(KeyEvent(SDL_EVENT_KEY_DOWN, SDL_SCANCODE_RETURN, SDL_KMOD_NUM | SDL_KMOD_LSHIFT), 7);
+    input.HandleEvent(KeyEvent(SDL_EVENT_KEY_UP, SDL_SCANCODE_A, SDL_KMOD_NUM | SDL_KMOD_LSHIFT), 7);
     Require(sceKeyboardRead(KEYBOARD_HANDLE, data, 16) == 4);
     Require(data[0].length == 1 && data[0].key_code[0] == 0 && data[0].modifier_key == 2 && data[0].led == KEYBOARD_LED_NUM_LOCK);
     Require(data[1].length == 1 && data[1].key_code[0] == 0x04);
@@ -74,26 +74,25 @@ int main() {
     Require(sceKeyboardReadState(KEYBOARD_HANDLE, data) == KEYBOARD_OK);
     Require(data[0].connected && data[0].length == 1 && data[0].key_code[0] == 0x28 && data[0].modifier_key == 2);
 
-    input.HandleEvent(KeyEvent(SDL_KEYDOWN, SDL_SCANCODE_CAPSLOCK, KMOD_NUM | KMOD_CAPS | KMOD_LSHIFT), 7);
+    input.HandleEvent(KeyEvent(SDL_EVENT_KEY_DOWN, SDL_SCANCODE_CAPSLOCK, SDL_KMOD_NUM | SDL_KMOD_CAPS | SDL_KMOD_LSHIFT), 7);
     Require(sceKeyboardRead(KEYBOARD_HANDLE, data, 1) == 1);
     Require(data[0].led == (KEYBOARD_LED_NUM_LOCK | KEYBOARD_LED_CAPS_LOCK));
 
     SDL_Event window{};
-    window.type = SDL_WINDOWEVENT;
     window.window.windowID = 7;
-    window.window.event = SDL_WINDOWEVENT_FOCUS_LOST;
+    window.type = SDL_EVENT_WINDOW_FOCUS_LOST;
     input.HandleEvent(window, 7);
     Require(sceKeyboardRead(KEYBOARD_HANDLE, data, 1) == 1);
     Require(data[0].connected && data[0].length == 1 && data[0].key_code[0] == 0 && data[0].modifier_key == 0);
-    input.HandleEvent(KeyEvent(SDL_KEYDOWN, SDL_SCANCODE_B), 7);
+    input.HandleEvent(KeyEvent(SDL_EVENT_KEY_DOWN, SDL_SCANCODE_B), 7);
     Require(sceKeyboardRead(KEYBOARD_HANDLE, data, 1) == 0);
-    window.window.event = SDL_WINDOWEVENT_FOCUS_GAINED;
+    window.type = SDL_EVENT_WINDOW_FOCUS_GAINED;
     input.HandleEvent(window, 7);
     Require(sceKeyboardRead(KEYBOARD_HANDLE, data, 1) == 0);
-    window.window.event = SDL_WINDOWEVENT_CLOSE;
+    window.type = SDL_EVENT_WINDOW_CLOSE_REQUESTED;
     input.HandleEvent(window, 7);
     Require(sceKeyboardRead(KEYBOARD_HANDLE, data, 1) == 1 && !data[0].connected && data[0].length == 1 && data[0].key_code[0] == 0);
-    window.window.event = SDL_WINDOWEVENT_FOCUS_GAINED;
+    window.type = SDL_EVENT_WINDOW_FOCUS_GAINED;
     input.HandleEvent(window, 7);
     Require(sceKeyboardRead(KEYBOARD_HANDLE, data, 1) == 1 && data[0].connected);
 

@@ -2,7 +2,7 @@
 #include "prx/libSceAgcDriver/Graphics/include/Resources.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/ShaderResources.hpp"
 #include "VulkanTestDevice.hpp"
-#include <SDL_loadso.h>
+#include <SDL3/SDL_loadso.h>
 #include <array>
 #include <cstdint>
 #include <cstdio>
@@ -113,7 +113,7 @@ private:
         if (library != nullptr) SDL_UnloadObject(library);
     }
 
-    void* library = nullptr;
+    SDL_SharedObject* library = nullptr;
     PFN_vkGetInstanceProcAddr instanceProc = nullptr;
     VkInstance instance = VK_NULL_HANDLE;
     Context context{};

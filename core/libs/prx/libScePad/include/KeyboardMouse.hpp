@@ -5,7 +5,7 @@
 #include <chrono>
 #include <cstdint>
 #include <vector>
-#include "SDL_events.h"
+#include <SDL3/SDL_events.h>
 
 #include "InputMapping.hpp"
 #include "PadState.hpp"

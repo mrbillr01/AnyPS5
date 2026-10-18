@@ -1,3 +1,4 @@
+#include <SDL3/SDL.h>
 #include "SceTypes.hpp"
 
 #include <array>
@@ -32,8 +33,10 @@ static void Require(bool value) { if (!value) std::abort(); }
 static void SetEnvironment(const char* name, const std::string& value) {
 #ifdef _WIN32
     _putenv_s(name, value.c_str());
+    SDL_SetEnvironmentVariable(SDL_GetEnvironment(), name, value.c_str(), true);
 #else
     setenv(name, value.c_str(), 1);
+    SDL_SetEnvironmentVariable(SDL_GetEnvironment(), name, value.c_str(), true);
 #endif
 }
 
@@ -57,7 +60,7 @@ void SetData(AudioOut2PortHandle port, const void* data) {
 std::vector<float> Play(const std::function<void(AudioOut2ContextHandle, AudioOut2PortHandle)>& feed, bool advanced = false) {
     const auto path = std::filesystem::temp_directory_path() / ("anyps5_audio_out2_port_buffers-" + std::to_string(std::random_device{}()) + ".raw");
     std::filesystem::remove(path);
-    SetEnvironment("SDL_DISKAUDIOFILE", path.string());
+    SetEnvironment("SDL_AUDIO_DISK_OUTPUT_FILE", path.string());
 
     AudioOut2ContextParam params{};
     Require(sceAudioOut2ContextResetParam(&params) == 0);
@@ -235,7 +238,7 @@ void TestPushingThreadWaitsForAdvance() {
 }
 
 int main() {
-    SetEnvironment("SDL_AUDIODRIVER", "disk");
+    SetEnvironment("SDL_AUDIO_DRIVER", "disk");
     TestAdvanceRetainsRewrittenBuffer();
     TestAdvanceRetainsVolume();
     TestPushingThreadWaitsForAdvance();

@@ -3,7 +3,7 @@
 #include <stdexcept>
 
 #ifdef _WIN32
-#include "SDL_syswm.h"
+#include <SDL3/SDL.h>
 #include <windows.h>
 #include <dxgi1_6.h>
 #endif
@@ -59,14 +59,13 @@ void HostHdrProbe::Release() noexcept {
 void HostHdrProbe::Poll(SDL_Window* window) {
     if (window == nullptr) throw std::runtime_error("VideoOut: the HDR probe needs the window");
 #ifdef _WIN32
-    SDL_SysWMinfo info;
-    SDL_VERSION(&info.version);
-    if (SDL_GetWindowWMInfo(window, &info) != SDL_TRUE || info.subsystem != SDL_SYSWM_WINDOWS) {
+    const auto hwnd = static_cast<HWND>(SDL_GetPointerProperty(SDL_GetWindowProperties(window), SDL_PROP_WINDOW_WIN32_HWND_POINTER, nullptr));
+    if (!hwnd) {
         if (!published) AgcDriverSetHostDisplayHdr_nid_postfix({});
         published = true;
         return;
     }
-    const HMONITOR current = MonitorFromWindow(info.info.win.window, MONITOR_DEFAULTTONEAREST);
+    const HMONITOR current = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
     auto* dxgiFactory = static_cast<IDXGIFactory1*>(factory);
     if (published && current == monitor && (dxgiFactory == nullptr || dxgiFactory->IsCurrent())) return;
     releaseCom(dxgiFactory);

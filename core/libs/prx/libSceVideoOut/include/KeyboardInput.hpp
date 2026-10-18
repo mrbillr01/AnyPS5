@@ -1,7 +1,7 @@
 #ifndef CORE_LIBS_PRX_LIBSCEVIDEOOUT_KEYBOARDINPUT_HPP
 #define CORE_LIBS_PRX_LIBSCEVIDEOOUT_KEYBOARDINPUT_HPP
 
-#include "SDL_events.h"
+#include <SDL3/SDL_events.h>
 
 class KeyboardInput {
 public:

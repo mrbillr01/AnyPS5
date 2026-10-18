@@ -23,7 +23,7 @@
 #include "prx/libc/include/Shutdown.hpp"
 #include "prx/libkernel/Time/include/TimedWait.hpp"
 
-#include "SDL.h"
+#include <SDL3/SDL.h>
 #include "SceTypes.hpp"
 
 static constexpr int VIDEO_OUT_ERROR_INVALID_VALUE = -2144796671;

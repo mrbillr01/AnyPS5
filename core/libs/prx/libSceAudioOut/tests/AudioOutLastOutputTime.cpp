@@ -184,9 +184,9 @@ void TestQueriesDuringOutput(bool batch, bool drain) {
 
 int main() {
 #ifdef _WIN32
-    _putenv_s("SDL_AUDIODRIVER", "dummy");
+    _putenv_s("SDL_AUDIO_DRIVER", "dummy");
 #else
-    setenv("SDL_AUDIODRIVER", "dummy", 1);
+    setenv("SDL_AUDIO_DRIVER", "dummy", 1);
 #endif
     sceKernelGetProcessTime();
     TestOutput(portTypeMain);
