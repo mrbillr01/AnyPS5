@@ -6667,6 +6667,10 @@ void verifyUnnormalizedSamplers() {
     require(proven(plain, false), "unnormalized samplers: a normalized S# was flagged");
     require(plain.variantId == accepted.variantId && plain.spirv == accepted.spirv, "unnormalized samplers: the unnormalized S# compiled another variant");
 
+    const auto volume = recompile(program(0xf0800f10u), userData(normalized));
+    require(proven(volume, false), "implicit 3D sampling of a normalized 2D T# lost its sampler bindings");
+    auditSpirv(volume.spirv.Words());
+
     for (const std::uint32_t mimg : {0xf0900f08u, 0xf0800f08u, 0xf0940f08u, 0xf0840f08u, 0xf0880f08u}) {
         const auto result = recompile(program(mimg), userData(unnormalized));
         require(proven(result, true), "unnormalized samplers: a compute image_sample_l, image_sample, image_sample_b, image_sample_cl or image_sample_d was not flagged");
